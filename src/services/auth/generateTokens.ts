@@ -1,14 +1,14 @@
 import jwt from "jsonwebtoken";
 import { env } from "../../config/env.js";
 
-interface AccessTokenPayload {
+export interface AccessTokenPayload {
   userId: string;
   email: string;
   role: "member" | "partner" | "admin";
   plan: "free" | "plus" | "premium";
 }
 
-interface RefreshTokenPayload {
+export interface RefreshTokenPayload {
   userId: string;
 }
 

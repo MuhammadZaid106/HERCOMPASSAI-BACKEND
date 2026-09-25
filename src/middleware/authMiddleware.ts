@@ -1,17 +1,12 @@
 import type { Request, Response, NextFunction } from "express";
-import { verifyAccessToken } from "../services/auth/generateTokens.js";
+import { verifyAccessToken, type AccessTokenPayload } from "../services/auth/generateTokens.js";
 import { sendError } from "../utils/apiResponse.js";
 import { logger } from "../utils/logger.js";
 
 const authLog = logger.module("AUTH-MIDDLEWARE");
 
 export interface AuthenticatedRequest extends Request {
-  user?: {
-    userId: string;
-    email: string;
-    role: "member" | "partner";
-    plan: "free" | "plus" | "premium";
-  };
+  user?: AccessTokenPayload;
 }
 
 /**

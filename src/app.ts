@@ -33,9 +33,31 @@ if (process.env.VERCEL) {
 app.use(helmet());
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
+const baseAllowedOrigins = [
+  "https://hercompassai.vercel.app",
+  "http://localhost:3000",
+  ...env.CORS_ORIGIN.split(",").map((o) => o.trim()).filter(Boolean),
+];
+const allowedOrigins = Array.from(new Set(baseAllowedOrigins));
+
 app.use(
   cors({
-    origin: env.CORS_ORIGIN,
+    origin: (requestOrigin, callback) => {
+      // Allow server-to-server, mobile, or tool requests without origin
+      if (!requestOrigin) {
+        return callback(null, true);
+      }
+      const isAllowed =
+        allowedOrigins.includes(requestOrigin) ||
+        (requestOrigin.endsWith(".vercel.app") && requestOrigin.includes("hercompassai"));
+
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        logger.warn(`[CORS] Blocked request from unauthorized origin: ${requestOrigin}`);
+        callback(new Error(`Origin ${requestOrigin} not allowed by CORS`));
+      }
+    },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With"],
     exposedHeaders: ["Content-Length"],
