@@ -5,6 +5,7 @@ import morgan from "morgan";
 import { env } from "./config/env.js";
 import { logger } from "./utils/logger.js";
 import authRoutes from "./routes/auth/authRoutes.js";
+import onboardingRoutes from "./routes/onboarding/onboardingRoutes.js";
 import { globalErrorHandler } from "./middleware/errorHandler.js";
 import { connectDB } from "./models/index.js";
 
@@ -87,6 +88,8 @@ app.get("/health", (_req, res) => {
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
+app.use("/api/onboarding", onboardingRoutes);
+
 
 // ─── Global Error Handler (must be last) ─────────────────────────────────────
 app.use(globalErrorHandler);
