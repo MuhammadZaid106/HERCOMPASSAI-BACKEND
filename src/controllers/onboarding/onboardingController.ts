@@ -22,6 +22,11 @@ export async function submitOnboarding(
       return;
     }
 
+    if (req.user?.role === "partner") {
+      sendError(res, 403, "Partner accounts cannot submit member onboarding assessments. Onboarding is reserved for women/member accounts.");
+      return;
+    }
+
     // 1. Zod runtime validation
     const parsedData = onboardingPayloadSchema.parse(req.body);
 
@@ -132,6 +137,15 @@ export async function getOnboardingProfile(
       return;
     }
 
+    if (req.user?.role === "partner") {
+      sendSuccess(res, 200, "Partner account", {
+        isCompleted: false,
+        isPartner: true,
+        profile: null,
+      });
+      return;
+    }
+
     const profile = await OnboardingProfile.findOne({
       where: { userId },
       attributes: { exclude: ["createdAt", "updatedAt"] },
@@ -171,6 +185,15 @@ export async function getPersonalSnapshot(
     const userId = req.user?.userId;
     if (!userId) {
       sendError(res, 401, "Authentication required");
+      return;
+    }
+
+    if (req.user?.role === "partner") {
+      sendError(
+        res,
+        403,
+        "Personal Menopause Snapshots are private to members. Partners receive synthesized insights via their weekly Consented Partner Digest."
+      );
       return;
     }
 
