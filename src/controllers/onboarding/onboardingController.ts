@@ -22,8 +22,8 @@ export async function submitOnboarding(
       return;
     }
 
-    if (req.user?.role === "partner") {
-      sendError(res, 403, "Partner accounts cannot submit member onboarding assessments. Onboarding is reserved for women/member accounts.");
+    if (req.user?.role !== "member") {
+      sendError(res, 403, "Only member accounts can submit onboarding assessments.");
       return;
     }
 
@@ -137,12 +137,8 @@ export async function getOnboardingProfile(
       return;
     }
 
-    if (req.user?.role === "partner") {
-      sendSuccess(res, 200, "Partner account", {
-        isCompleted: false,
-        isPartner: true,
-        profile: null,
-      });
+    if (req.user?.role !== "member") {
+      sendError(res, 403, "Onboarding profiles are only available to member accounts.");
       return;
     }
 
@@ -188,11 +184,11 @@ export async function getPersonalSnapshot(
       return;
     }
 
-    if (req.user?.role === "partner") {
+    if (req.user?.role !== "member") {
       sendError(
         res,
         403,
-        "Personal Menopause Snapshots are private to members. Partners receive synthesized insights via their weekly Consented Partner Digest."
+        "Personal Menopause Snapshots are private to member accounts."
       );
       return;
     }
