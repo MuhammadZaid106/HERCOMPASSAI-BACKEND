@@ -10,6 +10,11 @@ export function globalErrorHandler(
   res: Response,
   _next: NextFunction
 ): void {
+  if (err.message.startsWith("Origin ") && err.message.endsWith("not allowed by CORS")) {
+    sendError(res, 403, "Origin is not allowed");
+    return;
+  }
+
   errorLog.error(`Unhandled error: ${err.message}`, {
     stack: err.stack,
     name: err.name,
