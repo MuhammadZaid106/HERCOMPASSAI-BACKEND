@@ -6,6 +6,8 @@ import { env } from "./config/env.js";
 import { logger } from "./utils/logger.js";
 import authRoutes from "./routes/auth/authRoutes.js";
 import onboardingRoutes from "./routes/onboarding/onboardingRoutes.js";
+import trackingRoutes from "./routes/tracking/trackingRoutes.js";
+import memberRoutes from "./routes/member/memberRoutes.js";
 import { globalErrorHandler } from "./middleware/errorHandler.js";
 import { connectDB } from "./models/index.js";
 
@@ -89,6 +91,8 @@ app.get("/health", (_req, res) => {
 // ─── API Routes ───────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/onboarding", onboardingRoutes);
+app.use("/api/tracking", trackingRoutes);
+app.use("/api/member", memberRoutes);
 
 
 // ─── Global Error Handler (must be last) ─────────────────────────────────────
