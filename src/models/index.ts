@@ -7,6 +7,7 @@ import { MoodEntry } from "./MoodEntry.js";
 import { SleepEntry } from "./SleepEntry.js";
 import { EnergyEntry } from "./EnergyEntry.js";
 import { LifestyleEntry } from "./LifestyleEntry.js";
+import { Notification } from "./Notification.js";
 
 // Setup Model Associations
 User.hasMany(RefreshToken, {
@@ -61,6 +62,8 @@ User.hasMany(LifestyleEntry, {
   onDelete: "CASCADE",
 });
 LifestyleEntry.belongsTo(User, { foreignKey: "userId", as: "user" });
+User.hasMany(Notification, { foreignKey: "userId", as: "notifications", onDelete: "CASCADE" });
+Notification.belongsTo(User, { foreignKey: "userId", as: "user" });
 
 export {
   sequelize,
@@ -73,4 +76,5 @@ export {
   SleepEntry,
   EnergyEntry,
   LifestyleEntry,
+  Notification,
 };
