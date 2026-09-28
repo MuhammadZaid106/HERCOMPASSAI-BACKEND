@@ -8,6 +8,9 @@ import { SleepEntry } from "./SleepEntry.js";
 import { EnergyEntry } from "./EnergyEntry.js";
 import { LifestyleEntry } from "./LifestyleEntry.js";
 import { Notification } from "./Notification.js";
+import { AiAuditLog } from "./AiAuditLog.js";
+import { AiFeedback } from "./AiFeedback.js";
+import { AiFlag } from "./AiFlag.js";
 
 // Setup Model Associations
 User.hasMany(RefreshToken, {
@@ -65,6 +68,23 @@ LifestyleEntry.belongsTo(User, { foreignKey: "userId", as: "user" });
 User.hasMany(Notification, { foreignKey: "userId", as: "notifications", onDelete: "CASCADE" });
 Notification.belongsTo(User, { foreignKey: "userId", as: "user" });
 
+// ─── AI Gateway audit trail ───────────────────────────────────────────────────
+// AI records are append-only provenance. They cascade with the user so account
+// deletion remains complete, and they are never joined into member read models.
+User.hasMany(AiAuditLog, { foreignKey: "userId", as: "aiAuditLogs", onDelete: "CASCADE" });
+AiAuditLog.belongsTo(User, { foreignKey: "userId", as: "user" });
+
+User.hasMany(AiFeedback, { foreignKey: "userId", as: "aiFeedback", onDelete: "CASCADE" });
+AiFeedback.belongsTo(User, { foreignKey: "userId", as: "user" });
+
+// A flag points at exactly one AI event. Declaring both sides is also what lets
+// `sync()` create the tables in dependency order, so the foreign keys resolve.
+User.hasMany(AiFlag, { foreignKey: "userId", as: "aiFlags", onDelete: "CASCADE" });
+AiFlag.belongsTo(User, { foreignKey: "userId", as: "user" });
+
+AiAuditLog.hasMany(AiFlag, { foreignKey: "requestId", as: "flags", onDelete: "CASCADE" });
+AiFlag.belongsTo(AiAuditLog, { foreignKey: "requestId", as: "aiEvent" });
+
 export {
   sequelize,
   connectDB,
@@ -77,4 +97,7 @@ export {
   EnergyEntry,
   LifestyleEntry,
   Notification,
+  AiAuditLog,
+  AiFeedback,
+  AiFlag,
 };

@@ -25,12 +25,17 @@ export const refreshSchema = z.object({
   refreshToken: z.string().min(1, "Refresh token is required"),
 });
 
+/**
+ * Google sign-in contract.
+ *
+ * The browser sends ONLY the Google ID token. Every other claim (email, name,
+ * email_verified, subject) is read from the verified token payload on the
+ * server. Accepting `email`/`googleId`/`role` from the request body previously
+ * allowed anyone who knew an email address to authenticate as that user, so
+ * those fields were removed rather than merely ignored.
+ */
 export const googleAuthSchema = z.object({
-  name: z.string().min(1).default("Member"),
-  email: z.string().email("Please provide a valid email address").toLowerCase().trim(),
-  googleId: z.string().min(1, "Google ID is required"),
-  role: z.enum(["member", "partner"]).default("member"),
-  plan: z.enum(["free", "plus", "premium"]).default("free"),
+  idToken: z.string().min(20, "A Google ID token is required"),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;

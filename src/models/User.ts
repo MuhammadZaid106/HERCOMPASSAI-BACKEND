@@ -15,7 +15,7 @@ export class User extends Model<
   declare name: string;
   declare email: string;
   declare passwordHash: string | null;
-  declare role: CreationOptional<"member" | "partner" | "admin">;
+  declare role: CreationOptional<"member" | "partner" | "admin" | "developer">;
   declare plan: CreationOptional<"free" | "plus" | "premium">;
   declare emailVerified: CreationOptional<boolean>;
   declare googleId: CreationOptional<string | null>;
@@ -47,7 +47,7 @@ User.init(
       allowNull: true,
     },
     role: {
-      type: DataTypes.ENUM("member", "partner", "admin"),
+      type: DataTypes.ENUM("member", "partner", "admin", "developer"),
       allowNull: false,
       defaultValue: "member",
     },

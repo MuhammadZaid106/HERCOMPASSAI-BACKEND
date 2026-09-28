@@ -26,21 +26,22 @@ router.post("/login", authRateLimiter, loginController);
 
 /**
  * POST /api/auth/google
- * Synchronize Google OAuth user into Neon PostgreSQL
+ * Verifies a Google ID token server-side. Rate-limited because an unverified
+ * caller can otherwise spam token verification against Google's JWKS.
  */
-router.post("/google", googleAuthController);
+router.post("/google", authRateLimiter, googleAuthController);
 
 /**
  * POST /api/auth/refresh
- * Issues a new access token using a valid refresh token
+ * Rotates the token pair. Reuse detection revokes the token family.
  */
-router.post("/refresh", refreshController);
+router.post("/refresh", authRateLimiter, refreshController);
 
 /**
  * POST /api/auth/logout
  * Revokes the provided refresh token
  */
-router.post("/logout", logoutController);
+router.post("/logout", authRateLimiter, logoutController);
 
 /**
  * GET /api/auth/me

@@ -22,6 +22,7 @@ export class OnboardingProfile extends Model<
   // Consent
   declare consentVersion: CreationOptional<string>;
   declare consentTimestamp: CreationOptional<Date>;
+  declare consentType: CreationOptional<string>;
 
   // Core Demographics & Phase
   declare age: CreationOptional<number | null>;
@@ -56,6 +57,7 @@ export class OnboardingProfile extends Model<
     | "prefer_not_to_say"
     | null
   >;
+  declare moodPatterns: CreationOptional<string[]>;
   declare emotionalGoals: CreationOptional<string[]>;
   declare meditationFrequency: CreationOptional<
     "daily" | "weekly" | "rarely" | "never" | null
@@ -123,6 +125,7 @@ export class OnboardingProfile extends Model<
     | "prefer_not_to_say"
     | null
   >;
+  declare partnerSupportNeeds: CreationOptional<string[]>;
   declare partnerEmail: CreationOptional<string | null>;
   declare partnerConsent: CreationOptional<boolean>;
   declare partnerSharingScopes: CreationOptional<string[]>;
@@ -175,6 +178,11 @@ OnboardingProfile.init(
       allowNull: false,
       defaultValue: DataTypes.NOW,
     },
+    consentType: {
+      type: DataTypes.STRING(64),
+      allowNull: false,
+      defaultValue: "legacy_assessment",
+    },
     age: {
       type: DataTypes.INTEGER,
       allowNull: true,
@@ -226,6 +234,11 @@ OnboardingProfile.init(
         "prefer_not_to_say"
       ),
       allowNull: true,
+    },
+    moodPatterns: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: [],
     },
     emotionalGoals: {
       type: DataTypes.JSONB,
@@ -329,6 +342,11 @@ OnboardingProfile.init(
         "prefer_not_to_say"
       ),
       allowNull: true,
+    },
+    partnerSupportNeeds: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: [],
     },
     partnerEmail: {
       type: DataTypes.STRING(255),

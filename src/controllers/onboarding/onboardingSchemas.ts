@@ -3,6 +3,9 @@ import { z } from "zod";
 export const onboardingPayloadSchema = z.object({
   version: z.string().optional().default("1.0"),
   isCompleted: z.boolean().optional().default(true),
+  consentAccepted: z.literal(true),
+  consentVersion: z.string().min(1).max(20),
+  consentType: z.literal("wellness_personalization"),
 
   // Demographics & Stage
   age: z
@@ -49,6 +52,7 @@ export const onboardingPayloadSchema = z.object({
     ])
     .nullable()
     .optional(),
+  moodPatterns: z.array(z.string()).optional().default([]),
   emotionalGoals: z.array(z.string()).optional().default([]),
   meditationFrequency: z
     .enum(["daily", "weekly", "rarely", "never"])
@@ -127,6 +131,7 @@ export const onboardingPayloadSchema = z.object({
     ])
     .nullable()
     .optional(),
+  partnerSupportNeeds: z.array(z.string()).optional().default([]),
   partnerEmail: z
     .string()
     .email("Please provide a valid partner email address")

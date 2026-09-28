@@ -1,10 +1,16 @@
 import jwt from "jsonwebtoken";
 import { env } from "../../config/env.js";
 
+/**
+ * Server-authoritative roles. The spec requires four distinct roles and forbids a
+ * single unrestricted role: member, partner, admin, developer.
+ */
+export type UserRole = "member" | "partner" | "admin" | "developer";
+
 export interface AccessTokenPayload {
   userId: string;
   email: string;
-  role: "member" | "partner" | "admin";
+  role: UserRole;
   plan: "free" | "plus" | "premium";
 }
 
