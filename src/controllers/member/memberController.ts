@@ -12,6 +12,7 @@ import {
   User,
 } from "../../models/index.js";
 import { sendError, sendSuccess } from "../../utils/apiResponse.js";
+import { calculateMemberTrends } from "../../services/intelligence/index.js";
 
 function memberId(req: AuthenticatedRequest, res: Response): string | null {
   if (!req.user?.userId) {
@@ -45,6 +46,35 @@ function average(values: number[]): number | null {
     : null;
 }
 
+function streakLookbackStart(): Date {
+  return startDate(90);
+}
+
+async function collectLoggedDates(
+  userId: string,
+  since: Date,
+): Promise<string[]> {
+  const dateWhere = { userId, entryDate: { [Op.gte]: since } };
+  const [symptoms, moods, sleep, energy, lifestyle] = await Promise.all([
+    SymptomEntry.findAll({ where: dateWhere, attributes: ["entryDate"] }),
+    MoodEntry.findAll({ where: dateWhere, attributes: ["entryDate"] }),
+    SleepEntry.findAll({ where: dateWhere, attributes: ["entryDate"] }),
+    EnergyEntry.findAll({ where: dateWhere, attributes: ["entryDate"] }),
+    LifestyleEntry.findAll({ where: dateWhere, attributes: ["entryDate"] }),
+  ]);
+  const dates = new Set<string>();
+  for (const row of [
+    ...symptoms,
+    ...moods,
+    ...sleep,
+    ...energy,
+    ...lifestyle,
+  ]) {
+    dates.add(row.entryDate);
+  }
+  return [...dates];
+}
+
 export async function getMemberDashboard(
   req: AuthenticatedRequest,
   res: Response,
@@ -53,34 +83,51 @@ export async function getMemberDashboard(
   try {
     const userId = memberId(req, res);
     if (!userId) return;
-    const [user, profile, symptomEntry, moodEntry, sleepEntry, energyEntry] =
-      await Promise.all([
-        User.findByPk(userId, { attributes: ["id", "name", "plan"] }),
-        OnboardingProfile.findOne({
-          where: { userId },
-          attributes: ["isCompleted", "completedAt", "deterministicScores"],
-        }),
-        SymptomEntry.findOne({
-          where: { userId },
-          order: [["entryDate", "DESC"]],
-        }),
-        MoodEntry.findOne({
-          where: { userId },
-          order: [["entryDate", "DESC"]],
-        }),
-        SleepEntry.findOne({
-          where: { userId },
-          order: [["entryDate", "DESC"]],
-        }),
-        EnergyEntry.findOne({
-          where: { userId },
-          order: [["entryDate", "DESC"]],
-        }),
-      ]);
+    const [
+      user,
+      profile,
+      symptomEntry,
+      moodEntry,
+      sleepEntry,
+      energyEntry,
+      loggedDates,
+    ] = await Promise.all([
+      User.findByPk(userId, { attributes: ["id", "name", "plan"] }),
+      OnboardingProfile.findOne({
+        where: { userId },
+        attributes: ["isCompleted", "completedAt", "deterministicScores"],
+      }),
+      SymptomEntry.findOne({
+        where: { userId },
+        order: [["entryDate", "DESC"]],
+      }),
+      MoodEntry.findOne({
+        where: { userId },
+        order: [["entryDate", "DESC"]],
+      }),
+      SleepEntry.findOne({
+        where: { userId },
+        order: [["entryDate", "DESC"]],
+      }),
+      EnergyEntry.findOne({
+        where: { userId },
+        order: [["entryDate", "DESC"]],
+      }),
+      collectLoggedDates(userId, streakLookbackStart()),
+    ]);
     if (!user) {
       sendError(res, 404, "Member account not found");
       return;
     }
+    const trendsPreview = calculateMemberTrends({
+      rangeDays: 7,
+      symptomPoints: [],
+      moodPoints: [],
+      sleepPoints: [],
+      energyPoints: [],
+      loggedDates,
+    });
+
     sendSuccess(res, 200, "Member dashboard retrieved", {
       member: user,
       onboarding: {
@@ -96,6 +143,11 @@ export async function getMemberDashboard(
       },
       deterministicScores: profile?.deterministicScores ?? null,
       partnerSupport: { interest: null },
+      trackingSummary: {
+        checkInStreak: trendsPreview.checkInStreak,
+        consistencyScore7d: trendsPreview.consistencyScore,
+        daysWithAnyEntry7d: trendsPreview.daysWithAnyEntry,
+      },
     });
   } catch (error) {
     next(error);
@@ -112,13 +164,15 @@ export async function getMemberProgress(
     if (!userId) return;
     const days = rangeDays(req.query.range);
     const where = { userId, entryDate: { [Op.gte]: startDate(days) } };
-    const [symptoms, moods, sleep, energy, lifestyle] = await Promise.all([
-      SymptomEntry.findAll({ where, order: [["entryDate", "ASC"]] }),
-      MoodEntry.findAll({ where, order: [["entryDate", "ASC"]] }),
-      SleepEntry.findAll({ where, order: [["entryDate", "ASC"]] }),
-      EnergyEntry.findAll({ where, order: [["entryDate", "ASC"]] }),
-      LifestyleEntry.findAll({ where, order: [["entryDate", "ASC"]] }),
-    ]);
+    const [symptoms, moods, sleep, energy, lifestyle, loggedDates] =
+      await Promise.all([
+        SymptomEntry.findAll({ where, order: [["entryDate", "ASC"]] }),
+        MoodEntry.findAll({ where, order: [["entryDate", "ASC"]] }),
+        SleepEntry.findAll({ where, order: [["entryDate", "ASC"]] }),
+        EnergyEntry.findAll({ where, order: [["entryDate", "ASC"]] }),
+        LifestyleEntry.findAll({ where, order: [["entryDate", "ASC"]] }),
+        collectLoggedDates(userId, streakLookbackStart()),
+      ]);
     const symptomPoints = symptoms.map((entry) => ({
       date: entry.entryDate,
       value: entry.symptoms.length,
@@ -141,6 +195,15 @@ export async function getMemberProgress(
       date: entry.entryDate,
       value: entry.energyLevel,
     }));
+    const trends = calculateMemberTrends({
+      rangeDays: days,
+      symptomPoints,
+      moodPoints,
+      sleepPoints,
+      energyPoints,
+      loggedDates,
+    });
+
     sendSuccess(res, 200, "Member progress retrieved", {
       range: `${days}d`,
       points: {
@@ -161,6 +224,7 @@ export async function getMemberProgress(
         sleep.length +
         energy.length +
         lifestyle.length,
+      trends,
     });
   } catch (error) {
     next(error);
