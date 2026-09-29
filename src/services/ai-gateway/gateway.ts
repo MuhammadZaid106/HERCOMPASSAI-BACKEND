@@ -76,6 +76,7 @@ export interface GatewayInvocation {
   partnerScope?: string[];
   partnerPreferences?: string[];
   authorizedSignals?: Record<string, string | number | boolean | null>;
+  logSignals?: Record<string, string | number | boolean>;
 }
 
 interface ProvenanceDraft {
@@ -347,6 +348,7 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
     partnerScope: invocation.partnerScope,
     partnerPreferences: invocation.partnerPreferences,
     authorizedSignals: invocation.authorizedSignals,
+    logSignals: invocation.logSignals,
   });
 
   draft.evidenceVersion = context.evidenceVersion;

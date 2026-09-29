@@ -39,6 +39,8 @@ export interface AssembleContextParams {
   partnerPreferences?: string[];
   /** Partner features receive authorized signals only — never the raw record. */
   authorizedSignals?: Record<string, string | number | boolean | null>;
+  /** Trend scalars calculated from daily logs. The model interprets them. */
+  logSignals?: Record<string, string | number | boolean>;
 }
 
 const FOCUS_HINTS: Record<string, string[]> = {
@@ -210,11 +212,33 @@ export function buildContext(params: AssembleContextParams): GatewayContext {
   const focusArea =
     typeof metrics.dominantFocusArea === "string" ? metrics.dominantFocusArea : null;
 
+  const logSignals = isPartnerFeature ? {} : (params.logSignals ?? {});
+  for (const [key, value] of Object.entries(logSignals)) {
+    metrics[key] = value;
+  }
+  const suppliedFields = Array.from(
+    new Set([...deterministic.suppliedFields, ...Object.keys(logSignals)]),
+  );
+
+  const topicHints = topicHintsFor(focusArea, params.feature);
+  if (logSignals.sleepTrend === "decreasing" || logSignals.sleepTrend === "increasing") {
+    topicHints.push(...FOCUS_HINTS.sleep_pattern);
+  }
+  if (logSignals.energyTrend === "decreasing" || logSignals.energyTrend === "increasing") {
+    topicHints.push(...FOCUS_HINTS.energy_pattern);
+  }
+  if (logSignals.moodTrend === "decreasing" || logSignals.moodTrend === "increasing") {
+    topicHints.push(...FOCUS_HINTS.mood_pattern);
+  }
+  if (logSignals.symptomTrend === "increasing") {
+    topicHints.push(...FOCUS_HINTS.symptom_pattern);
+  }
+
   const retrieval = retrieveEvidence({
     focusArea,
     goals: [...goals, ...partnerScope],
     reportedAreas,
-    topicHints: topicHintsFor(focusArea, params.feature),
+    topicHints: Array.from(new Set(topicHints)),
   });
 
   if (retrieval.insufficientEvidence) {
@@ -232,6 +256,7 @@ export function buildContext(params: AssembleContextParams): GatewayContext {
     deterministic: {
       ...deterministic,
       metrics,
+      suppliedFields: isPartnerFeature ? deterministic.suppliedFields : suppliedFields,
       // Partner context completeness is measured against what was shared, not
       // against the member's full assessment.
       missingFields: isPartnerFeature ? [] : deterministic.missingFields,

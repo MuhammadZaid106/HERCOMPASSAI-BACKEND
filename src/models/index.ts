@@ -11,6 +11,11 @@ import { Notification } from "./Notification.js";
 import { AiAuditLog } from "./AiAuditLog.js";
 import { AiFeedback } from "./AiFeedback.js";
 import { AiFlag } from "./AiFlag.js";
+import { SnapshotVersion } from "./SnapshotVersion.js";
+import { SnapshotFeedback } from "./SnapshotFeedback.js";
+import { NotificationPreference } from "./NotificationPreference.js";
+import { ExploreProgress } from "./ExploreProgress.js";
+import { SupportRequest } from "./SupportRequest.js";
 
 // Setup Model Associations
 User.hasMany(RefreshToken, {
@@ -85,6 +90,17 @@ AiFlag.belongsTo(User, { foreignKey: "userId", as: "user" });
 AiAuditLog.hasMany(AiFlag, { foreignKey: "requestId", as: "flags", onDelete: "CASCADE" });
 AiFlag.belongsTo(AiAuditLog, { foreignKey: "requestId", as: "aiEvent" });
 
+User.hasMany(SnapshotVersion, { foreignKey: "userId", as: "snapshotVersions", onDelete: "CASCADE" });
+SnapshotVersion.belongsTo(User, { foreignKey: "userId", as: "user" });
+User.hasMany(SnapshotFeedback, { foreignKey: "userId", as: "snapshotFeedback", onDelete: "CASCADE" });
+SnapshotFeedback.belongsTo(User, { foreignKey: "userId", as: "user" });
+User.hasOne(NotificationPreference, { foreignKey: "userId", as: "notificationPreference", onDelete: "CASCADE" });
+NotificationPreference.belongsTo(User, { foreignKey: "userId", as: "user" });
+User.hasMany(ExploreProgress, { foreignKey: "userId", as: "exploreProgress", onDelete: "CASCADE" });
+ExploreProgress.belongsTo(User, { foreignKey: "userId", as: "user" });
+User.hasMany(SupportRequest, { foreignKey: "userId", as: "supportRequests", onDelete: "CASCADE" });
+SupportRequest.belongsTo(User, { foreignKey: "userId", as: "user" });
+
 export {
   sequelize,
   connectDB,
@@ -100,4 +116,9 @@ export {
   AiAuditLog,
   AiFeedback,
   AiFlag,
+  SnapshotVersion,
+  SnapshotFeedback,
+  NotificationPreference,
+  ExploreProgress,
+  SupportRequest,
 };
