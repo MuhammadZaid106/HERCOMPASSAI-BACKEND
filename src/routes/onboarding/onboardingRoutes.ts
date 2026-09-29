@@ -4,6 +4,8 @@ import {
   submitOnboarding,
   getOnboardingProfile,
   getPersonalSnapshot,
+  getSnapshotVersions,
+  submitSnapshotFeedback,
 } from "../../controllers/onboarding/onboardingController.js";
 
 const router: Router = Router();
@@ -14,5 +16,7 @@ router.use(requireAuth);
 router.post("/", submitOnboarding);
 router.get("/me", getOnboardingProfile);
 router.get("/snapshot", getPersonalSnapshot);
+router.get("/snapshot/versions", getSnapshotVersions);
+router.post("/snapshot/feedback", submitSnapshotFeedback);
 
 export default router;
