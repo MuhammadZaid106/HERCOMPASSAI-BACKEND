@@ -2,6 +2,7 @@ import { sequelize, connectDB } from "../config/db.js";
 import { User } from "./User.js";
 import { RefreshToken } from "./RefreshToken.js";
 import { OnboardingProfile } from "./OnboardingProfile.js";
+import { PersonalSnapshot } from "./PersonalSnapshot.js";
 import { SymptomEntry } from "./SymptomEntry.js";
 import { MoodEntry } from "./MoodEntry.js";
 import { SleepEntry } from "./SleepEntry.js";
@@ -31,6 +32,23 @@ User.hasOne(OnboardingProfile, {
 });
 
 OnboardingProfile.belongsTo(User, {
+  foreignKey: "userId",
+  as: "user",
+});
+
+/**
+ * A member holds one current Snapshot. Re-submitting onboarding or reaching a
+ * new consent record replaces it, so the Snapshot page never has to decide
+ * between "the artifact I stored" and "what is true right now" — the artifact
+ * is regenerated exactly when the underlying state changes.
+ */
+User.hasOne(PersonalSnapshot, {
+  foreignKey: "userId",
+  as: "personalSnapshot",
+  onDelete: "CASCADE",
+});
+
+PersonalSnapshot.belongsTo(User, {
   foreignKey: "userId",
   as: "user",
 });
@@ -91,6 +109,7 @@ export {
   User,
   RefreshToken,
   OnboardingProfile,
+  PersonalSnapshot,
   SymptomEntry,
   MoodEntry,
   SleepEntry,

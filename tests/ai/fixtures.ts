@@ -1,6 +1,7 @@
 import type { ModelProvider, ModelProviderName } from "../../src/ai/types/index.js";
 import type { ContextSource } from "../../src/services/ai-gateway/contextAssembler.js";
 import type { OnboardingProfile } from "../../src/models/OnboardingProfile.js";
+import type { TrendEngineOutput } from "../../src/services/intelligence/trendTypes.js";
 import { personalSnapshotModelOutputSchema } from "../../src/ai/schemas/outputSchemas.js";
 import type {
   AITaskType,
@@ -30,6 +31,7 @@ interface ProfileOverrides {
   menopausePhase?: string | null;
   partnerSupportInterest?: string | null;
   partnerSharingScopes?: string[];
+  trends?: TrendEngineOutput | null;
 }
 
 export function makeProfile(overrides: ProfileOverrides = {}): OnboardingProfile {
@@ -58,7 +60,77 @@ export function makeProfile(overrides: ProfileOverrides = {}): OnboardingProfile
 }
 
 export function makeContextSource(overrides: ProfileOverrides = {}): ContextSource {
-  return { profile: makeProfile(overrides), userName: "Test Member" };
+  return {
+    profile: makeProfile(overrides),
+    userName: "Test Member",
+    trends: "trends" in overrides ? (overrides.trends ?? null) : makeTrends(),
+  };
+}
+
+/**
+ * Verified Trend Engine output, as `loadMemberTrendEngineOutput` would produce it.
+ *
+ * Defaults describe a member whose logged sleep and mood have both drifted
+ * lower over a 30-day window — the case that must reach the prompt, because a
+ * trend the model cannot see is a trend the model will guess at.
+ */
+export function makeTrends(overrides: Partial<TrendEngineOutput> = {}): TrendEngineOutput {
+  return {
+    rangeDays: 30,
+    insufficientData: false,
+    checkInStreak: 4,
+    consistencyScore: 47,
+    daysWithAnyEntry: 14,
+    symptomFrequency: 3.1,
+    symptoms: {
+      trend: "increasing",
+      changePercent: 18,
+      recentAverage: 3.1,
+      priorAverage: 2.6,
+      sufficientData: true,
+    },
+    mood: {
+      trend: "decreasing",
+      changePercent: -14,
+      recentAverage: 2.4,
+      priorAverage: 2.8,
+      sufficientData: true,
+    },
+    sleep: {
+      trend: "decreasing",
+      changePercent: -22,
+      recentAverage: 2.1,
+      priorAverage: 2.7,
+      sufficientData: true,
+    },
+    energy: {
+      trend: "stable",
+      changePercent: 0,
+      recentAverage: 2.9,
+      priorAverage: 2.9,
+      sufficientData: true,
+    },
+    patternIndicators: [
+      "Your logs suggest symptom entries were more frequent in the recent part of this window.",
+    ],
+    ...overrides,
+  };
+}
+
+/** A member who has not logged enough to describe any direction yet. */
+export function makeSparseTrends(): TrendEngineOutput {
+  return makeTrends({
+    insufficientData: true,
+    daysWithAnyEntry: 1,
+    consistencyScore: 3,
+    checkInStreak: 1,
+    symptomFrequency: null,
+    symptoms: { trend: "stable", changePercent: null, recentAverage: null, priorAverage: null, sufficientData: false },
+    mood: { trend: "stable", changePercent: null, recentAverage: null, priorAverage: null, sufficientData: false },
+    sleep: { trend: "stable", changePercent: null, recentAverage: null, priorAverage: null, sufficientData: false },
+    energy: { trend: "stable", changePercent: null, recentAverage: null, priorAverage: null, sufficientData: false },
+    patternIndicators: [],
+  });
 }
 
 export const GRANTED_CONSENT = {
@@ -144,16 +216,33 @@ export function stubSnapshotPayload(
 
 /** A provider stub whose response the test controls completely. */
 export class StubProvider implements ModelProvider {
+  /**
+   * Optional shared identity, used to model two registered engines pointing at
+   * the same deployment and weights — the router's dedupe compares this rather
+   * than the provider name, because that is what actually determines whether a
+   * second attempt is worth the member's wait.
+   */
+  private readonly identity: { model: string; deployment: string } | null;
+
   constructor(
     readonly name: ModelProviderName,
-    private readonly handler: (request: ModelGenerationRequest) => Promise<string>
-  ) {}
+    private readonly handler: (request: ModelGenerationRequest) => Promise<string>,
+    identity?: { model: string; deployment: string }
+  ) {
+    this.identity = identity ?? null;
+  }
+
+  /** Mirrors the real transport: a digest of the endpoint and the model. */
+  getEndpointIdentity(): string | null {
+    if (this.identity === null) return null;
+    return `${this.identity.deployment}::${this.identity.model}`;
+  }
 
   async generate(request: ModelGenerationRequest): Promise<ModelGenerationResponse> {
     const content = await this.handler(request);
     return {
       provider: this.name,
-      model: `stub-${this.name}`,
+      model: this.identity?.model ?? `stub-${this.name}`,
       modelVersion: "0.0.1",
       content,
       finishReason: "stop",
@@ -186,9 +275,9 @@ export class StubProvider implements ModelProvider {
   getModelMetadata(): ModelMetadata {
     return {
       provider: this.name,
-      model: `stub-${this.name}`,
+      model: this.identity?.model ?? `stub-${this.name}`,
       modelVersion: "0.0.1",
-      deployment: "test",
+      deployment: this.identity?.deployment ?? "test",
       region: "test",
     };
   }

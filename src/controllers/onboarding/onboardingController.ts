@@ -1,8 +1,9 @@
 import type { Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware.js";
-import { OnboardingProfile, User } from "../../models/index.js";
+import { OnboardingProfile } from "../../models/index.js";
 import { onboardingPayloadSchema } from "./onboardingSchemas.js";
 import { calculateDeterministicScores } from "../../services/onboarding/calculateScores.js";
+import { generatePersonalSnapshot } from "../../services/onboarding/personalSnapshotService.js";
 import { sendSuccess, sendError } from "../../utils/apiResponse.js";
 import { logger } from "../../utils/logger.js";
 
@@ -172,8 +173,16 @@ export async function getOnboardingProfile(
 }
 
 /**
- * Retrieve 8-part Personal Menopause Snapshot
+ * Retrieve the 8-part Personal Menopause Snapshot
  * GET /api/onboarding/snapshot
+ * GET /api/onboarding/snapshot?refresh=true
+ *
+ * This is a generated artifact, not a template. The read path runs the AI
+ * Gateway — the same `runGateway` invocation the AI Lab exercises — and replays
+ * the stored result until the member's consent, baseline or logged trends
+ * change. It is the only member-facing screen that produces AI content, so it is
+ * also the only place that has to distinguish "you have not finished onboarding"
+ * from "the intelligence service is unavailable".
  */
 export async function getPersonalSnapshot(
   req: AuthenticatedRequest,
@@ -196,125 +205,22 @@ export async function getPersonalSnapshot(
       return;
     }
 
-    const profile = await OnboardingProfile.findOne({
-      where: { userId },
-      include: [{ model: User, as: "user", attributes: ["name", "email", "plan"] }],
+    const outcome = await generatePersonalSnapshot({
+      userId,
+      role: "member",
+      force: req.query.refresh === "true",
     });
 
-    if (!profile || !profile.isCompleted) {
-      sendError(
-        res,
-        404,
-        "Please complete your 5-minute onboarding assessment first"
-      );
+    if (!outcome.ok) {
+      sendError(res, outcome.statusCode, outcome.message, { reason: outcome.reason });
       return;
     }
 
-    const scores = (profile.deterministicScores || {}) as Record<string, any>;
-
-    // Structured 8-part Snapshot Observations (SCI compliant, non-diagnostic observational language)
-    const snapshot = {
-      member: {
-        name: (profile as any).user?.name || "Member",
-        plan: (profile as any).user?.plan || "free",
-      },
-      completedAt: profile.completedAt,
-      version: profile.version,
-      deterministicMetrics: {
-        symptomBurdenScore: scores.symptomBurdenScore ?? 45,
-        sleepDisturbanceScore: scores.sleepDisturbanceScore ?? 40,
-        vitalityIndex: scores.vitalityIndex ?? 60,
-        emotionalBalanceScore: scores.emotionalBalanceScore ?? 65,
-        dominantFocusArea: scores.dominantFocusArea ?? "Holistic Rhythm & Daily Baseline",
-      },
-      observations: [
-        {
-          id: 1,
-          pillar: "Symptom Pattern",
-          title: "Primary Observed Concerns",
-          summary:
-            profile.primaryHealthConcerns.length > 0
-              ? `Your logs suggest focal patterns around: ${profile.primaryHealthConcerns.join(", ")}.`
-              : "No acute symptom burdens were highlighted in your initial check-in.",
-          impact: profile.symptomImpact || "moderate",
-          evidenceNote: "Grounded in NAMS & ACOG observational symptom prevalence guidelines.",
-        },
-        {
-          id: 2,
-          pillar: "Mood & Emotional Baseline",
-          title: "Emotional Wellbeing Rhythm",
-          summary:
-            "Your baseline shows resilience with occasional fluctuations. Prioritizing consistent morning sunlight and mindful breathing can support autonomic balance.",
-          score: scores.emotionalBalanceScore ?? 65,
-        },
-        {
-          id: 3,
-          pillar: "Sleep Architecture",
-          title: "Restorative Sleep Pattern",
-          summary:
-            profile.sleepChallenges.length > 0
-              ? `Noted challenges with: ${profile.sleepChallenges.join(", ")}. Evening cooling and scheduled wind-down protocols may assist.`
-              : "Sleep rhythm appears steady. Maintaining regular wake times will sustain this pattern.",
-          score: scores.sleepDisturbanceScore ?? 40,
-        },
-        {
-          id: 4,
-          pillar: "Energy & Metabolic Rhythm",
-          title: "Ultradian Energy Distribution",
-          summary: `Energy tendency is noted as "${profile.energyLevel || "steady"}" with typical variance around "${profile.energyPattern || "the day"}".`,
-          vitalityIndex: scores.vitalityIndex ?? 60,
-        },
-        {
-          id: 5,
-          pillar: "Lifestyle & Nutrition Context",
-          title: "Nutrition & Movement Baseline",
-          summary: `Activity level is currently categorized as "${profile.activityLevel || "moderate"}" with ${profile.weeklyExerciseMinutes || "30-60"} minutes of targeted exercise weekly.`,
-          preferences: profile.dietaryPreferences,
-        },
-        {
-          id: 6,
-          pillar: "Personalized Recommendations",
-          title: "Your First 3 High-Yield Steps",
-          recommendations: [
-            {
-              action: "Evening Cooling & Screen Curfew",
-              why: "Assists thermal regulation and supports natural melatonin release before sleep.",
-              category: "Sleep & Vasomotor",
-            },
-            {
-              action: "Mid-Day Protein & Fiber Anchor",
-              why: "Minimizes post-meal glucose dips that often manifest as afternoon brain fog.",
-              category: "Nutrition Radar",
-            },
-            {
-              action: "3-Minute Box Breathing Reset",
-              why: "Activates parasympathetic vagal tone to dampen acute vasomotor stress responses.",
-              category: "Cooling & Breathwork",
-            },
-          ],
-        },
-        {
-          id: 7,
-          pillar: "Suggested Next Steps",
-          title: "Your 7-Day Gentle Habit",
-          action: "Log your 60-second Daily Check-in each morning to start training your personalized Trend Engine.",
-        },
-        {
-          id: 8,
-          pillar: "Partner Support Opportunity",
-          title: "Couple & Partner Intelligence",
-          status: profile.partnerConsent && profile.partnerEmail ? "Connected" : "Optional / Private",
-          summary:
-            profile.partnerConsent && profile.partnerEmail
-              ? `Partner digest enabled for ${profile.partnerEmail}. Scoped sharing strictly limits access to weekly actionable communication summaries.`
-              : "Partner sharing is currently private. You can invite a trusted partner whenever you choose.",
-        },
-      ],
-      safetyNotice:
-        "HerCompassAI provides empathetic, non-diagnostic observational insights and lifestyle education. It is not a medical diagnosis or treatment plan.",
-    };
-
-    sendSuccess(res, 200, "Personal Menopause Snapshot retrieved", { snapshot });
+    sendSuccess(res, 200, "Personal Menopause Snapshot retrieved", {
+      snapshot: outcome.snapshot,
+      generated: outcome.generated,
+      requestId: outcome.requestId,
+    });
   } catch (error) {
     next(error);
   }

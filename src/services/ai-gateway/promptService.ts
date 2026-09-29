@@ -1,7 +1,12 @@
 import { getPromptBundle, renderTemplate, type PromptBundle } from "../../ai/prompts/index.js";
 import { AI_GATEWAY_CONFIG } from "../../config/aiGateway.js";
 import { logger } from "../../utils/logger.js";
-import type { GatewayContext, ModelMessage, RetrievedEvidence } from "../../ai/types/index.js";
+import type {
+  GatewayContext,
+  GatewayDomainTrend,
+  ModelMessage,
+  RetrievedEvidence,
+} from "../../ai/types/index.js";
 
 const promptLog = logger.module("AI-PROMPTS");
 
@@ -58,6 +63,58 @@ function formatSignals(signals: string[]): string {
   return signals.length > 0 ? signals.join(", ") : "none";
 }
 
+/**
+ * Renders the verified Trend Engine output.
+ *
+ * The block is written as plain, already-calculated sentences and figures. The
+ * model is told explicitly what it may and may not do with it, because "your
+ * mood decreased 12%" is the single easiest thing for a language model to
+ * produce from a trend, and it is the fastest way to publish a number HerCompass
+ * cannot trace.
+ */
+function formatTrendBlock(context: GatewayContext): string {
+  const trend = context.trend;
+  if (!trend) return "[no tracking data available yet]";
+
+  if (trend.insufficientData) {
+    return [
+      `insufficient_data: true`,
+      `days_logged: ${trend.daysWithAnyEntry} of ${trend.rangeDays}`,
+      `check_in_streak_days: ${trend.checkInStreak}`,
+      `No directional trend has been calculated. Do not describe any change over time, and do not state an average for any domain.`,
+    ].join("\n");
+  }
+
+  const domain = (name: string, value: GatewayDomainTrend): string[] => {
+    const lines = [
+      `${name}_trend: ${value.trend}`,
+      `${name}_recent_average: ${value.recentAverage ?? "not available"}`,
+      `${name}_prior_average: ${value.priorAverage ?? "not available"}`,
+    ];
+    if (value.changePercent !== null) lines.push(`${name}_change_percent: ${value.changePercent}`);
+    if (!value.sufficientData) lines.push(`${name}_sufficiency: insufficient — do not describe this domain as changing`);
+    return lines;
+  };
+
+  return [
+    `insufficient_data: false`,
+    `range_days: ${trend.rangeDays}`,
+    `days_logged: ${trend.daysWithAnyEntry}`,
+    `consistency_score: ${trend.consistencyScore}`,
+    `check_in_streak_days: ${trend.checkInStreak}`,
+    `symptom_frequency: ${trend.symptomFrequency ?? "not available"}`,
+    ...domain("symptoms", trend.symptoms),
+    ...domain("mood", trend.mood),
+    ...domain("sleep", trend.sleep),
+    ...domain("energy", trend.energy),
+    "",
+    "verified_pattern_indicators (already calculated — restate or omit, never author new ones):",
+    ...(trend.patternIndicators.length > 0
+      ? trend.patternIndicators.map((indicator) => `- ${indicator}`)
+      : ["- [none calculated]"]),
+  ].join("\n");
+}
+
 export function assemblePrompt(
   context: GatewayContext,
   promptKey: string,
@@ -79,8 +136,11 @@ export function assemblePrompt(
     DIGEST_VERSION: AI_GATEWAY_CONFIG.versions.config,
     LOCALE: context.locale,
     DETERMINISTIC_METRICS: formatMetrics(context),
+    TREND_ENGINE_VALUES: formatTrendBlock(context),
     SUPPLIED_SIGNALS: formatSignals(context.deterministic.suppliedFields),
     MISSING_SIGNALS: formatSignals(context.deterministic.missingFields),
+    CONSISTENT_SIGNALS: formatSignals(context.deterministic.consistentSignals),
+    CONFLICTING_SIGNALS: formatSignals(context.deterministic.conflictingSignals),
     REPORTED_AREAS: formatList(context.reportedAreas, "[none supplied]"),
     GOALS: formatList(context.goals, "[none supplied]"),
     PARTNER_SUPPORT: context.partnerScope.length > 0 ? context.partnerScope.join(", ") : "not indicated",

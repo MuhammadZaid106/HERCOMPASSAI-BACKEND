@@ -47,8 +47,13 @@ export function listProviderNames(): ModelProviderName[] {
 }
 
 /**
- * Reports engine reachability without exposing URLs, model ids or credentials.
- * Safe to surface on an internal health endpoint.
+ * Reports engine reachability without exposing URLs or credentials.
+ *
+ * The model id and a redacted, length-capped explanation of any failure are
+ * included deliberately: "status 400" on its own is not actionable, and an
+ * operator cannot tell a bad model id from a rejected key without the model. This
+ * is an internal diagnostic surface and must stay behind an admin/developer guard
+ * rather than being treated as member-safe.
  */
 export async function getProviderHealth(): Promise<ProviderHealth[]> {
   const entries = Array.from(providers.values());

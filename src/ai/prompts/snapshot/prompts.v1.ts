@@ -52,7 +52,14 @@ Rules:
 - Provide 3 to 5 "personalizedRecommendations" when the context supports them; never fewer than 1.
 - Exactly one "suggestedNextSteps" entry per horizon: today, this_week, track. Never more than 4 total.
 - "partnerSupportOpportunity" must be null unless the context indicates partner support is relevant.
-- "citationIds" must be a non-empty subset of the supplied valid citation IDs for every recommendation.`;
+- "citationIds" must be a non-empty subset of the supplied valid citation IDs for every recommendation.
+
+LENGTH LIMITS (hard limits; a longer value is rejected and the whole response is discarded)
+- "impact" is a short label, not a sentence: 40 characters or fewer, or null.
+- Each "summary": 600 characters or fewer. Each "reportedAreas" entry: 120 characters or fewer.
+- Each recommendation "what", "why" and "start": 400, 400 and 300 characters or fewer.
+- "lifestyleObservations" entries: 400 characters or fewer, and at most 8 entries.
+- Every "citationIds" entry: 64 characters or fewer, and at most 6 per list.`;
 
 export const SNAPSHOT_USER_TEMPLATE_V1 = `Generate a HerCompass Personal Menopause Snapshot from the verified context below.
 
@@ -64,9 +71,18 @@ These values were calculated deterministically by HerCompassAI. Interpret them. 
 {{DETERMINISTIC_METRICS}}
 </deterministic_context>
 
+<deterministic_trend_engine>
+These are the verified Trend Engine calculations over the member's logged check-ins. They are already calculated.
+Use them exactly as given. Never recompute an average, a change percentage or a direction. If insufficient_data is true,
+say that there is not yet enough logged data to describe a change rather than inventing one.
+{{TREND_ENGINE_VALUES}}
+</deterministic_trend_engine>
+
 <data_completeness>
 supplied_signals: {{SUPPLIED_SIGNALS}}
 missing_signals: {{MISSING_SIGNALS}}
+cross_source_signals_that_agree: {{CONSISTENT_SIGNALS}}
+cross_source_signals_that_conflict: {{CONFLICTING_SIGNALS}}
 </data_completeness>
 
 <reported_areas>

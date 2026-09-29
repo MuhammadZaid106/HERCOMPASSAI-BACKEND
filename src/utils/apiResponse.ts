@@ -9,7 +9,7 @@ interface ApiSuccessResponse<T> {
 interface ApiErrorResponse {
   success: false;
   message: string;
-  errors?: Record<string, string[]> | string[];
+  errors?: Record<string, string[]> | string[] | Record<string, string>;
 }
 
 export function sendSuccess<T>(
@@ -30,7 +30,7 @@ export function sendError(
   res: Response,
   statusCode: number,
   message: string,
-  errors?: Record<string, string[]> | string[]
+  errors?: Record<string, string[]> | string[] | Record<string, string>
 ): Response {
   const body: ApiErrorResponse = {
     success: false,

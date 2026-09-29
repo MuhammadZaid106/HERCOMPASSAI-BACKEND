@@ -71,3 +71,28 @@ describe("AI HTTP surface", () => {
     assert.equal(response.status, 200);
   });
 });
+
+/**
+ * The member-facing Snapshot endpoint.
+ *
+ * This is the route the Snapshot page actually calls, so it is the one that has
+ * to be gateway-backed. When it still assembled its eight sections in the
+ * controller, every test in this file still passed — the AI Lab worked, the
+ * provider answered, and no member ever saw any of it. Asserting the route
+ * exists and is authenticated is the cheapest guard against that regression
+ * returning.
+ */
+describe("Personal Snapshot route", () => {
+  it("mounts the snapshot endpoint and challenges an anonymous caller", async () => {
+    const response = await fetch(`${origin}/api/onboarding/snapshot`);
+
+    assert.notEqual(response.status, 404, "the Snapshot route is not mounted");
+    assert.equal(response.status, 401);
+  });
+
+  it("requires a session to force a regeneration", async () => {
+    const response = await fetch(`${origin}/api/onboarding/snapshot?refresh=true`);
+
+    assert.equal(response.status, 401);
+  });
+});

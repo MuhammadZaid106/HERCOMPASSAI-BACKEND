@@ -128,6 +128,10 @@ async function handleGenerate(
       evidenceVersion: result.provenance.evidenceVersion,
       sciVersion: result.provenance.sciVersion,
       modelVersion: result.provenance.modelVersion,
+      // Only present on a degraded result. Carries the classification, not the
+      // provider's raw text, so a member-facing surface can say what happened
+      // without exposing our infrastructure.
+      diagnostics: result.diagnostics,
     },
   });
 }
@@ -224,7 +228,10 @@ export async function submitAiFeedback(
  * GET /api/ai/health  (admin / developer only)
  *
  * Reports version stamps, engine reachability and routing. Never returns URLs,
- * model endpoints, API keys or any credential.
+ * API keys or any credential. It does name the configured model id for a
+ * failing engine, because "status 400" is not actionable on its own — the
+ * operator's next step is to change the id, and only this restricted surface
+ * is where that comparison belongs.
  */
 export async function getAiHealth(
   req: AuthenticatedRequest,

@@ -14,6 +14,15 @@ import type {
 /** Percent change at or above/below this magnitude → increasing / decreasing */
 export const TREND_CHANGE_THRESHOLD_PERCENT = 10;
 
+/**
+ * Fallback sufficiency threshold.
+ *
+ * `AI_GATEWAY_CONFIG.trendEngine.minimumDaysForPatterns` is the authority; this
+ * constant only applies when the engine is called without the setting, e.g. from
+ * a unit test that wants a fixed baseline.
+ */
+export const DEFAULT_MINIMUM_DAYS_FOR_PATTERNS = 3;
+
 function mean(values: number[]): number | null {
   if (!values.length) return null;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -212,7 +221,8 @@ export function calculateMemberTrends(
       ? Math.round((mean(symptomValues) ?? 0) * 10) / 10
       : null;
 
-  const insufficientData = daysWithAnyEntry < 3;
+  const insufficientData =
+    daysWithAnyEntry < (input.minimumDaysForPatterns ?? DEFAULT_MINIMUM_DAYS_FOR_PATTERNS);
 
   const patternIndicators = insufficientData
     ? []

@@ -19,6 +19,10 @@ import type {
   GatewayActorRole,
   GatewayCitation,
   GatewayContext,
+  GatewayDegradation,
+  GatewayDegradationDiagnostics,
+  GatewayDegradationReason,
+  GatewayEngineFailure,
   GatewayFeature,
   GatewayOutput,
   GatewayProvenance,
@@ -95,6 +99,7 @@ interface ProvenanceDraft {
   citations: string[];
   sciFindings: SciFinding[];
   taskType: AITaskType;
+  degradation: GatewayDegradation | null;
 }
 
 function newProvenance(taskType: AITaskType): ProvenanceDraft {
@@ -115,6 +120,7 @@ function newProvenance(taskType: AITaskType): ProvenanceDraft {
     citations: [],
     sciFindings: [],
     taskType,
+    degradation: null,
   };
 }
 
@@ -149,6 +155,7 @@ function finalizeProvenance(
     attemptCount: draft.attemptCount,
     citations: draft.citations,
     sciFindings: draft.sciFindings,
+    degradation: draft.degradation,
   };
 }
 
@@ -158,7 +165,7 @@ type ParsedModelOutput =
 
 /** The result body before provenance is attached. */
 type GatewayOutcome =
-  | { ok: true; output: GatewayOutput }
+  | { ok: true; output: GatewayOutput; diagnostics?: GatewayDegradationDiagnostics }
   | { ok: false; message: string; statusCode: number };
 
 type FailureKind =
@@ -215,6 +222,115 @@ function isAuthorized(feature: GatewayFeature, role: GatewayActorRole): boolean 
   const policy = getFeaturePolicy(feature);
   if (!policy) return false;
   return policy.allowedRoles.includes(role);
+}
+
+/**
+ * One-line description of an engine failure for the server log.
+ *
+ * The log previously printed only the kind, and "unavailable" was the kind for
+ * every 4xx, 5xx and DNS failure alike. The status and the engine's own
+ * explanation are what turn a log line into a diagnosis.
+ */
+function describeFailure(error: ModelProviderError): string {
+  const parts: string[] = [error.kind];
+  if (error.httpStatus !== null) parts.push(`status ${error.httpStatus}`);
+  parts.push(error.retryable ? "retryable" : "not retryable");
+  if (error.detail) parts.push(`— ${error.detail}`);
+  return parts.join(", ");
+}
+
+function describeFailureRecord(failure: GatewayEngineFailure): string {
+  const parts = [`${failure.provider}: ${failure.kind}`];
+  if (failure.httpStatus !== null) parts.push(`(HTTP ${failure.httpStatus})`);
+  if (failure.detail) parts.push(`— ${failure.detail}`);
+  return parts.join(" ");
+}
+
+/**
+ * Member-safe explanation of a degraded result.
+ *
+ * Two rules. A member is told what happened and what they are looking at, never
+ * what our infrastructure is doing — no hostname, no model id, no provider
+ * payload, because a wrong model id is an operator problem and surfacing it
+ * invites support tickets about it. And the retry advice is derived from the
+ * actual failure class: a refusal will be refused again identically, so
+ * "try again in a moment" would be a lie.
+ */
+function buildDegradationDiagnostics(
+  engineFailures: GatewayEngineFailure[],
+  reason: GatewayDegradationReason
+): GatewayDegradationDiagnostics {
+  const retryable = degradationIsRetryable(engineFailures, reason);
+
+  return {
+    degraded: true,
+    reason,
+    message: degradationMessageFor(reason, retryable),
+    engines: engineFailures.map((failure) => ({
+      provider: failure.provider,
+      kind: failure.kind,
+      httpStatus: failure.httpStatus,
+      retryable: failure.retryable,
+    })),
+    retryable,
+  };
+}
+
+/**
+ * Whether re-running this request could plausibly succeed.
+ *
+ * This is the one piece of advice a member acts on, so it is derived from the
+ * actual failure class rather than assumed. "Every engine failed" is not by
+ * itself retryable: a chain whose fallback is unconfigured, or whose primary was
+ * refused, will fail identically forever, and telling the member to try again
+ * would send them to wait for something that never changes.
+ *
+ * The inverse case matters too — a malformed payload or a failed integrity check
+ * came *from* a responding engine, so the route is healthy and another
+ * generation is worth attempting.
+ */
+function degradationIsRetryable(
+  engineFailures: GatewayEngineFailure[],
+  reason: GatewayDegradationReason
+): boolean {
+  switch (reason) {
+    case "schema_invalid":
+      // The engine answered; the payload was unusable. Another attempt is worth
+      // making, and the member should be invited to.
+      return true;
+    case "guardrail_blocked":
+    case "integrity_check_failed":
+      // The engine answered, and its answer was refused on its merits. Asking
+      // again for the same content invites a loop rather than a result.
+      return false;
+    case "no_evidence":
+      // Nothing about a retry will bring approved evidence into existence.
+      return false;
+    case "generation_failed":
+    default:
+      return engineFailures.length > 0 && engineFailures.every((failure) => failure.retryable);
+  }
+}
+
+function degradationMessageFor(reason: GatewayDegradationReason, retryable: boolean): string {
+  switch (reason) {
+    case "schema_invalid":
+      return "The AI response did not match HerCompass's required format, so it was set aside. You are seeing your own verified numbers instead.";
+    case "guardrail_blocked":
+      return "The AI response did not pass HerCompass's safety checks, so it was set aside. You are seeing your own verified numbers instead.";
+    case "integrity_check_failed":
+      return "The AI response did not pass HerCompass's accuracy checks, so it was set aside. You are seeing your own verified numbers instead.";
+    case "no_evidence":
+      return "HerCompass could not find the approved sources it needs to write this. Your verified numbers are shown instead.";
+    case "generation_failed":
+    default:
+      // The retry invitation follows the classification: a temporary failure gets
+      // an invitation, a permanent one does not, because the member cannot fix
+      // either and should not be sent to wait on something that will not change.
+      return retryable
+        ? "The AI assistant is having trouble right now, so it did not write this. You are seeing your own verified numbers instead, and it is worth trying again shortly."
+        : "The AI assistant could not run, so it did not write this. You are seeing your own verified numbers instead.";
+  }
 }
 
 interface InvocationRejection {
@@ -376,10 +492,17 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
    * returned malformed JSON, or failed an internal check. The Gateway still owes
    * a grounded, non-diagnostic response built from approved evidence and the
    * deterministic context, with no model-authored string anywhere in it.
+   *
+   * The response also carries `diagnostics`, so a degraded result explains
+   * itself. A member is told the AI part could not run and that their verified
+   * numbers are shown instead; an operator is told which engine failed and why.
+   * Silence here is what made this look like a working feature.
    */
   const serveFallback = async (
     findings: SciFinding[] = [],
-    citations: GatewayCitation[] = buildContextCitations(context)
+    citations: GatewayCitation[] = buildContextCitations(context),
+    engineFailures: GatewayEngineFailure[] = [],
+    degradedFor: GatewayDegradationReason = "generation_failed"
   ): Promise<GatewayResult> => {
     // The generation event itself is treated as degraded: no clean finish, no
     // latency success, because in this path no acceptable model output exists.
@@ -407,12 +530,24 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
     draft.confidenceScore = fallbackConfidence.confidenceScore;
     draft.citations = citations.map((citation) => citation.citationId);
     draft.sciFindings = findings;
+    // Full, redacted record for the audit trail and the admin health endpoint.
+    draft.degradation = { reason: degradedFor, engines: engineFailures };
 
     gatewayLog.warn(
-      `Served the deterministic fallback for request ${requestId} (feature "${invocation.feature}").`
+      `Served the deterministic fallback for request ${requestId} (feature "${invocation.feature}")${
+        engineFailures.length > 0
+          ? ` after ${engineFailures.length} engine failure(s): ${engineFailures
+              .map((failure) => describeFailureRecord(failure))
+              .join("; ")}`
+          : " (no engine produced output)"
+      }.`
     );
 
-    return finish({ ok: true, output: fallback as GatewayOutput });
+    return finish({
+      ok: true,
+      output: fallback as GatewayOutput,
+      diagnostics: buildDegradationDiagnostics(engineFailures, degradedFor),
+    });
   };
 
   // ─── Step 9-10: model selection and prompt selection ────────────────────────
@@ -420,10 +555,25 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
   try {
     plan = resolveRoute(invocation.feature, taskType);
   } catch (error) {
+    // No engine is even addressable for this feature — an empty registry, or a
+    // routing rule pointing only at providers that no longer exist. A 503 here
+    // would tell the member their data is lost, which is false: the verified
+    // numbers are still computable, so the Gateway serves those and says why.
     gatewayLog.error(
-      `Routing failed for request ${requestId}: ${error instanceof Error ? error.message : "unknown"}`
+      `Routing failed for request ${requestId} (feature "${invocation.feature}"): ${error instanceof Error ? error.message : "unknown"}`
     );
-    return fail("no_provider");
+    return serveFallback(
+      [
+        {
+          check: "response_schema",
+          severity: "warn",
+          message: "No AI engine is configured for this feature. Served the deterministic fallback.",
+        },
+      ],
+      buildContextCitations(context),
+      [],
+      "generation_failed"
+    );
   }
 
   let assembled;
@@ -442,6 +592,16 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
   // ─── Step 11: generation, with transport-level fallback ─────────────────────
   let generation = null;
   let lastErrorKind: ModelProviderErrorKind | null = null;
+  /**
+   * Per-engine record of what actually went wrong.
+   *
+   * The log line this replaces said only "failed (unavailable)", which is the
+   * same word for a 400 from an unsupported model id, a 401 from a bad key and
+   * a DNS failure — so the log could not tell an operator whether to change a
+   * model id, rotate a key or check the network. Each attempt now records the
+   * kind, the HTTP status and the engine's own explanation.
+   */
+  const engineFailures: GatewayEngineFailure[] = [];
 
   for (const attempt of plan.attempts) {
     draft.attemptCount += 1;
@@ -471,8 +631,17 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
     } catch (error) {
       if (error instanceof ModelProviderError) {
         lastErrorKind = error.kind;
+        engineFailures.push({
+          provider: error.provider,
+          kind: error.kind,
+          httpStatus: error.httpStatus,
+          // Redacted at construction. Safe for the log and the admin health
+          // endpoint; never attached to a member-facing response.
+          detail: error.detail,
+          retryable: error.retryable,
+        });
         gatewayLog.warn(
-          `Provider "${error.provider}" failed for request ${requestId} (${error.kind}). Trying the next route.`
+          `Provider "${error.provider}" failed for request ${requestId} (${describeFailure(error)}). Trying the next route.`
         );
         // A non-retryable failure means "do not use this engine again", not
         // "abandon the request". Skipping to the next route is what lets a
@@ -483,20 +652,33 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
         `Unexpected provider failure for request ${requestId}.`,
         error instanceof Error ? error.message : undefined
       );
+      engineFailures.push({
+        provider: attempt.provider,
+        kind: "unknown",
+        httpStatus: null,
+        detail: null,
+        retryable: true,
+      });
       lastErrorKind = "unknown";
       break;
     }
   }
 
   if (!generation) {
-    // Every route failed. The member still gets a grounded response.
-    return serveFallback([
-      {
-        check: "response_schema",
-        severity: "warn",
-        message: `No model produced a usable response (${lastErrorKind ?? "no_provider"}). Served the deterministic fallback.`,
-      },
-    ]);
+    // Every route failed. The member still gets a grounded response, and the
+    // reason travels with it so the surface can say *why* it degraded instead of
+    // implying the model answered.
+    return serveFallback(
+      [
+        {
+          check: "response_schema",
+          severity: "warn",
+          message: `No model produced a usable response (${lastErrorKind ?? "no_provider"}). Served the deterministic fallback.`,
+        },
+      ],
+      buildContextCitations(context),
+      engineFailures
+    );
   }
 
   // ─── Step 12: schema validation ────────────────────────────────────────────
@@ -508,14 +690,19 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
     gatewayLog.warn(
       `Generated response for request ${requestId} failed schema validation. Falling back.`
     );
-    return serveFallback([
-      {
-        check: "response_schema",
-        severity: "warn",
-        message:
-          "Generated payload did not satisfy the feature output contract. Served the deterministic fallback.",
-      },
-    ]);
+    return serveFallback(
+      [
+        {
+          check: "response_schema",
+          severity: "warn",
+          message:
+            "Generated payload did not satisfy the feature output contract. Served the deterministic fallback.",
+        },
+      ],
+      buildContextCitations(context),
+      [],
+      "schema_invalid"
+    );
   }
 
   // ─── Steps 13 + guardrails: claim verification and language safety ──────────
@@ -545,7 +732,10 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
     // A safety violation must never reach the member, but it also must not read as
     // a system error: the deterministic fallback is safe, grounded, and useful.
     return serveFallback(
-      guardrailResult.findings.filter((finding) => finding.severity === "block")
+      guardrailResult.findings.filter((finding) => finding.severity === "block"),
+      buildContextCitations(context),
+      [],
+      "guardrail_blocked"
     );
   }
 
@@ -582,7 +772,7 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
 
   if (!sci.passed) {
     // ─── Step 17: block -> safe fallback -> log ───────────────────────────────
-    return serveFallback(sci.findings, verification.citations);
+    return serveFallback(sci.findings, verification.citations, [], "integrity_check_failed");
   }
 
   const output: GatewayOutput =

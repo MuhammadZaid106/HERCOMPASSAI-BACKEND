@@ -41,6 +41,15 @@ export interface DailyPoint {
 export interface CalculateTrendsInput {
   rangeDays: 7 | 30 | 90;
   today?: Date;
+  /**
+   * Days with at least one entry required before a pattern may be described.
+   *
+   * Defaults to the value in `AI_GATEWAY_CONFIG.trendEngine`. It is an input
+   * rather than a module constant so the threshold stays a configuration
+   * decision — a previous version hardcoded `3` here and exposed the setting in
+   * the config, which meant changing the setting changed nothing.
+   */
+  minimumDaysForPatterns?: number;
   symptomPoints: DailyPoint[];
   moodPoints: DailyPoint[];
   sleepPoints: DailyPoint[];

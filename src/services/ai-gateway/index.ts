@@ -1,8 +1,11 @@
 export { runGateway } from "./gateway.js";
 export type { GatewayInvocation } from "./gateway.js";
 
-export { buildContext, loadContextSource, partnerSupportIsRelevant } from "./contextAssembler.js";
+export { buildContext, loadContextSource, partnerSupportIsRelevant, deterministicMetricsFor } from "./contextAssembler.js";
 export type { ContextSource, AssembleContextParams } from "./contextAssembler.js";
+
+export { presentSnapshot, presentDeterministicMetrics, SNAPSHOT_PRESENTATION_VERSION } from "./snapshotPresenter.js";
+export type { PresentedSnapshot, SnapshotObservationView, SnapshotGenerationView } from "./snapshotPresenter.js";
 
 export { resolveRoute, describeRouting } from "./modelRouter.js";
 export type { RoutePlan, RouteAttempt } from "./modelRouter.js";

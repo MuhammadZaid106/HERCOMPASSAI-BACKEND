@@ -6,6 +6,7 @@ import type {
   GatewayNextStep,
   GatewayPatternBlock,
   GatewayRecommendation,
+  GatewayTrendSignals,
   PartnerDigestOutput,
   PersonalSnapshotOutput,
 } from "../../ai/types/index.js";
@@ -113,6 +114,51 @@ function focusAreaSentence(context: GatewayContext): string {
   return "Based on what you shared, we are still getting a clear picture of your current baseline.";
 }
 
+/**
+ * Restates a verified trend in approved, non-diagnostic language.
+ *
+ * This is the same discipline the model prompt imposes, applied to constants:
+ * the fallback may quote a direction the Trend Engine already calculated, and it
+ * may say nothing about a domain whose series was too thin to calculate.
+ */
+function trendSentence(label: string, domain: GatewayTrendSignals["symptoms"]): string {
+  if (!domain.sufficientData) {
+    return `There is not yet enough logged ${label} data in this window to describe a change.`;
+  }
+
+  const direction =
+    domain.trend === "increasing"
+      ? "has been higher in the more recent part of this window"
+      : domain.trend === "decreasing"
+        ? "has been lower in the more recent part of this window"
+        : "has stayed broadly similar across this window";
+
+  const average =
+    domain.recentAverage === null
+      ? ""
+      : ` (recent logged average ${domain.recentAverage})`;
+
+  return `Your logged ${label} ${direction}${average}. This is an observation from your own check-ins, not a diagnosis.`;
+}
+
+function trendObservations(context: GatewayContext): string[] {
+  const trend = context.trend;
+  if (!trend) return [];
+
+  if (trend.insufficientData) {
+    return [
+      `You have logged entries on ${trend.daysWithAnyEntry} of the last ${trend.rangeDays} days. A few more check-ins will let your descriptive trends settle.`,
+    ];
+  }
+
+  return [
+    trendSentence("symptom entries", trend.symptoms),
+    trendSentence("mood", trend.mood),
+    trendSentence("sleep", trend.sleep),
+    trendSentence("energy", trend.energy),
+  ];
+}
+
 export function buildSnapshotFallback(
   context: GatewayContext,
   citations: GatewayCitation[],
@@ -157,7 +203,7 @@ export function buildSnapshotFallback(
     moodPattern: patternBlock("your emotional wellbeing", asNumber(context.deterministic.metrics.emotionalBalanceScore), []),
     sleepPattern: patternBlock("your sleep experience", asNumber(context.deterministic.metrics.sleepDisturbanceScore), []),
     energyPattern: patternBlock("your energy levels", asNumber(context.deterministic.metrics.vitalityIndex), []),
-    lifestyleObservations: [focusAreaSentence(context)],
+    lifestyleObservations: [focusAreaSentence(context), ...trendObservations(context)],
     personalizedRecommendations: recommendations,
     suggestedNextSteps: nextSteps,
     partnerSupportOpportunity: partnerSupport,

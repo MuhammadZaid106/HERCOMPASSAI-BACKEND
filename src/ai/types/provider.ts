@@ -118,6 +118,21 @@ export interface ModelProvider {
   healthCheck(): Promise<ProviderHealth>;
   getCapabilities(): ModelCapabilities;
   getModelMetadata(): ModelMetadata;
+  /**
+   * Opaque identity of the endpoint and weights this engine will actually call,
+   * for deciding whether a fallback route is worth attempting.
+   *
+   * Two registered engines can be configured against the same host with the same
+   * model. Attempting the identical endpoint twice cannot succeed where the first
+   * attempt did not — it only doubles how long a member waits for the
+   * deterministic fallback — so the router compares this instead of the provider
+   * name.
+   *
+   * Must be a one-way digest, never the URL itself: this value is compared and
+   * potentially logged, and a hostname is not something to spread further.
+   * Optional, so an engine that cannot express it is simply never deduped.
+   */
+  getEndpointIdentity?(): string | null;
 }
 
 export type ModelProviderErrorKind =
@@ -126,7 +141,41 @@ export type ModelProviderErrorKind =
   | "unavailable"
   | "rate_limited"
   | "invalid_response"
+  /**
+   * The engine answered and refused the request: 400/404 for a model id it does
+   * not serve, 401/403 for a rejected key, 422 for a request it will never
+   * accept.
+   *
+   * This kind exists because collapsing it into `unavailable` made a permanent
+   * configuration mistake look like a temporary outage. Nothing about a bad
+   * model id is fixed by retrying, and an operator reading "unavailable" has no
+   * way to know that.
+   */
+  | "rejected"
   | "unknown";
+
+/**
+ * Removes credential-shaped substrings from provider text.
+ *
+ * Provider error bodies are echoed into the server log and the admin health
+ * endpoint, and a 401 from one hosted API can include the key it rejected. This
+ * runs on everything before it is stored anywhere, and strips the common token
+ * shapes so a diagnostic can never become a leak.
+ */
+export function redactProviderText(value: string, maxLength = 300): string {
+  const redacted = value
+    // Authorization headers and bearer tokens, however they are labelled.
+    .replace(/(bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1[redacted]")
+    .replace(/((?:api[_-]?key|authorization|token|secret|password)["'\s]*[:=]\s*["']?)[^\s"',}]+/gi, "$1[redacted]")
+    // Hugging Face user/org access tokens.
+    .replace(/\bhf_[A-Za-z0-9]{8,}/g, "hf_[redacted]")
+    // Anything that looks like a JWT.
+    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "[redacted-jwt]")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return redacted.length > maxLength ? `${redacted.slice(0, maxLength)}…` : redacted;
+}
 
 /**
  * Provider failures are wrapped so the Gateway can classify them and decide on
@@ -137,19 +186,31 @@ export class ModelProviderError extends Error {
   readonly provider: ModelProviderName;
   readonly retryable: boolean;
   readonly cause?: unknown;
+  /** HTTP status, when the engine answered at all. */
+  readonly httpStatus: number | null;
+  /**
+   * Redacted provider explanation, for the server log and the admin health
+   * endpoint. Never attached to a member-facing response — that gets
+   * `toClientSafeProviderMessage` instead.
+   */
+  readonly detail: string | null;
 
   constructor(
     kind: ModelProviderErrorKind,
     provider: ModelProviderName,
     message: string,
-    options: { retryable?: boolean; cause?: unknown } = {}
+    options: { retryable?: boolean; cause?: unknown; httpStatus?: number | null; detail?: string | null } = {}
   ) {
     super(message);
     this.name = "ModelProviderError";
     this.kind = kind;
     this.provider = provider;
-    this.retryable = options.retryable ?? kind !== "not_configured";
+    // A refusal is permanent: the same request will be refused identically on a
+    // retry, so a `4xx` must never be treated as a blip worth re-attempting.
+    this.retryable = options.retryable ?? (kind === "not_configured" || kind === "rejected" ? false : true);
     this.cause = options.cause;
+    this.httpStatus = options.httpStatus ?? null;
+    this.detail = options.detail ? redactProviderText(options.detail) : null;
   }
 }
 
@@ -162,6 +223,11 @@ export function toClientSafeProviderMessage(kind: ModelProviderErrorKind): strin
       return "The intelligence service took too long to respond. Please try again.";
     case "rate_limited":
       return "The intelligence service is busy right now. Please try again shortly.";
+    case "rejected":
+      // Deliberately does not say which engine or what it objected to: a
+      // misconfigured model id is an operator problem, and naming it to a member
+      // would invite support tickets about our infrastructure.
+      return "The intelligence service could not accept the request. Your data is saved — please try again.";
     case "unavailable":
     case "invalid_response":
     case "unknown":

@@ -47,6 +47,17 @@ export function resolveRoute(feature: GatewayFeature, taskType: AITaskType): Rou
 
   const attempts: RouteAttempt[] = [];
   const seen = new Set<ModelProviderName>();
+  /**
+   * Endpoints already queued or tried, keyed by deployment + model.
+   *
+   * Two registered engines can point at the same weights on the same host, which
+   * is exactly the current configuration: `med42` and `llama` are both configured
+   * against the Hugging Face router with the same model. Attempting the identical
+   * endpoint twice does not add a second chance of success — it doubles the time a
+   * member waits before reaching the deterministic fallback, and it is why a
+   * degraded Snapshot took 40s to say nothing useful.
+   */
+  const seenEndpoints = new Set<string>();
 
   for (const name of ordered) {
     if (seen.has(name)) continue;
@@ -59,6 +70,15 @@ export function resolveRoute(feature: GatewayFeature, taskType: AITaskType): Rou
 
     const providerInstance = getProvider(name);
     if (!providerInstance) continue;
+
+    const endpointKey = endpointIdentity(providerInstance);
+    if (endpointKey !== null && seenEndpoints.has(endpointKey)) {
+      routerLog.debug(
+        `Skipping provider "${name}" for feature "${feature}": it resolves to the same deployment and model as an earlier route.`
+      );
+      continue;
+    }
+    if (endpointKey !== null) seenEndpoints.add(endpointKey);
 
     attempts.push({
       provider: name,
@@ -83,8 +103,28 @@ export function resolveRoute(feature: GatewayFeature, taskType: AITaskType): Rou
   };
 }
 
-/** Reporting view for the health endpoint. Never exposes URLs or credentials. */
-export function describeRouting(): Array<{
+/**
+ * Identity of the weights an engine will actually call, for deduplication.
+ *
+ * Prefers the engine's own opaque endpoint digest, because that reflects the real
+ * host and model. Falls back to the deployment label and model id only for an
+ * engine that does not implement it, and returns null when neither is available so
+ * the dedupe stays a safe skip rather than a guess.
+ */
+function endpointIdentity(provider: ModelProvider): string | null {
+  try {
+    const digest = provider.getEndpointIdentity?.();
+    if (typeof digest === "string" && digest.trim() !== "") return digest;
+
+    const metadata = provider.getModelMetadata();
+    if (!metadata.model.trim()) return null;
+    return `${metadata.deployment}::${metadata.model}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Reporting view for the health endpoint. Never exposes URLs or credentials. */export function describeRouting(): Array<{
   feature: GatewayFeature;
   taskType: AITaskType;
   primary: ModelProviderName;

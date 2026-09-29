@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import "../setupEnv.js";
 import { runGateway } from "../../src/services/ai-gateway/gateway.js";
 import { ModelProviderError } from "../../src/ai/types/index.js";
-import { getProvider, overrideProviderForTests } from "../../src/ai/providers/index.js";
+import { getProvider, listProviderNames, overrideProviderForTests } from "../../src/ai/providers/index.js";
 import {
   GRANTED_CONSENT,
   SLEEP_CITATION_ID,
@@ -223,6 +223,279 @@ describe("runGateway: deterministic fallback", () => {
       assert.equal(result.provenance.safetyStatus, "blocked");
     } finally {
       overrideProviderForTests("med42", original);
+    }
+  });
+});
+
+describe("runGateway: degradation diagnostics", () => {
+  /**
+   * A degraded result used to be indistinguishable from a working one at the
+   * client. The member saw their verified numbers and the UI said nothing, so a
+   * permanently broken engine looked like a feature that worked, and the log
+   * said only "unavailable" for every possible cause. These tests pin the two
+   * halves of the fix: a client-safe explanation, and a reason that does not
+   * carry our infrastructure.
+   */
+
+  /** Runs with `med42` failing in a specific way, and inspects the result. */
+  async function withFailingMed42(
+    error: ModelProviderError,
+    assert_: (result: Awaited<ReturnType<typeof runGateway>>) => void
+  ): Promise<void> {
+    const original = realMed42();
+    overrideProviderForTests(
+      "med42",
+      new StubProvider("med42", async () => {
+        throw error;
+      })
+    );
+    try {
+      assert_(await runGateway(snapshotRequest()));
+    } finally {
+      overrideProviderForTests("med42", original);
+    }
+  }
+
+  /**
+   * Fails every engine in the route, so the retry advice reflects a temporary
+   * outage rather than a chain that also contains an unconfigured engine. The
+   * distinction is load-bearing: a member told to "try again shortly" when the
+   * fallback does not exist is being sent to wait for something that will never
+   * change.
+   */
+  async function withWholeChainFailing(
+    error: () => ModelProviderError,
+    assert_: (result: Awaited<ReturnType<typeof runGateway>>) => void
+  ): Promise<void> {
+    const originals = new Map(listProviderNames().map((name) => [name, getProvider(name)!]));
+    for (const name of originals.keys()) {
+      overrideProviderForTests(
+        name,
+        new StubProvider(name, async () => {
+          throw error();
+        })
+      );
+    }
+    try {
+      assert_(await runGateway(snapshotRequest()));
+    } finally {
+      for (const [name, original] of originals) overrideProviderForTests(name, original);
+    }
+  }
+
+  it("tells the client the result degraded and offers a retry when one can help", async () => {
+    await withWholeChainFailing(
+      () => new ModelProviderError("rate_limited", "med42", "busy", { httpStatus: 429 }),
+      (result) => {
+        assert.equal(result.ok, true);
+        if (!result.ok) return;
+        assert.ok(result.diagnostics, "a degraded result must explain itself");
+        assert.equal(result.diagnostics.degraded, true);
+        assert.equal(result.diagnostics.reason, "generation_failed");
+        assert.equal(result.diagnostics.retryable, true);
+        assert.match(result.diagnostics.message, /verified numbers/i);
+        assert.match(result.diagnostics.message, /trying again/i);
+      }
+    );
+  });
+
+  it("withholds the retry invitation when part of the chain is unconfigured", async () => {
+    const original = realMed42();
+    // Only the primary is rate limited; the rest of the chain stays unconfigured,
+    // so a retry cannot produce a different outcome.
+    overrideProviderForTests(
+      "med42",
+      new StubProvider("med42", async () => {
+        throw new ModelProviderError("rate_limited", "med42", "busy", { httpStatus: 429 });
+      })
+    );
+    try {
+      const result = await runGateway(snapshotRequest());
+      assert.equal(result.ok, true);
+      if (!result.ok) return;
+      assert.equal(result.diagnostics?.retryable, false);
+      assert.doesNotMatch(
+        result.diagnostics?.message ?? "",
+        /trying again/i,
+        "must not invite a retry that cannot succeed"
+      );
+    } finally {
+      overrideProviderForTests("med42", original);
+    }
+  });
+
+  it("does not advise a retry for a permanent rejection", async () => {
+    await withFailingMed42(
+      new ModelProviderError("rejected", "med42", "no such model", {
+        httpStatus: 400,
+        detail: "code=model_not_supported",
+      }),
+      (result) => {
+        assert.equal(result.ok, true);
+        if (!result.ok) return;
+        // The same request will be refused identically forever. Promising "try
+        // again shortly" would be a lie the member acts on.
+        assert.equal(result.diagnostics?.retryable, false);
+        assert.equal(result.diagnostics?.engines[0]?.kind, "rejected");
+        assert.equal(result.diagnostics?.engines[0]?.httpStatus, 400);
+      }
+    );
+  });
+
+  it("keeps the provider's explanation out of the client payload", async () => {
+    await withFailingMed42(
+      new ModelProviderError("rejected", "med42", "no such model", {
+        httpStatus: 400,
+        detail: "code=model_not_supported for m42-health/Llama3-Med42-8B",
+      }),
+      (result) => {
+        assert.equal(result.ok, true);
+        if (!result.ok) return;
+
+        const serialised = JSON.stringify(result.diagnostics);
+        assert.ok(!serialised.includes("model_not_supported"), "raw provider text must not ship");
+        assert.ok(!serialised.includes("m42-health"), "the model id must not ship");
+        // The classification still ships, so a support conversation can start
+        // from "the engine refused the request" rather than "it was slow".
+        assert.match(serialised, /rejected/);
+      }
+    );
+  });
+
+  it("records the full redacted explanation in provenance for the audit trail", async () => {
+    await withFailingMed42(
+      new ModelProviderError("rejected", "med42", "no such model", {
+        httpStatus: 400,
+        detail: "code=model_not_supported",
+      }),
+      (result) => {
+        assert.equal(result.ok, true);
+        if (!result.ok) return;
+        // Server-side provenance keeps the detail the client does not get, which
+        // is what makes the failure diagnosable after the fact.
+        assert.equal(result.provenance.degradation?.reason, "generation_failed");
+        assert.equal(result.provenance.degradation?.engines[0]?.httpStatus, 400);
+        assert.match(result.provenance.degradation?.engines[0]?.detail ?? "", /model_not_supported/);
+      }
+    );
+  });
+
+  it("carries no diagnostics at all on a clean approved result", async () => {
+    await runWithMed42Answering(JSON.stringify(validSnapshotPayload(SLEEP_CITATION_ID)), async () => {
+      const result = await runGateway(snapshotRequest());
+
+      assert.equal(result.ok, true);
+      if (!result.ok) return;
+      // Failure vocabulary on a healthy response would be noise, and would make
+      // a client that checks `diagnostics` for "AI is working" unreliable.
+      assert.equal(result.diagnostics, undefined);
+      assert.equal(result.provenance.degradation, null);
+    });
+  });
+
+  it("names the cause when the engine's output fails schema validation", async () => {
+    await runWithMed42Answering("I'm afraid I cannot help with that request.", async () => {
+      const result = await runGateway(snapshotRequest());
+
+      assert.equal(result.ok, true);
+      if (!result.ok) return;
+      assert.equal(result.diagnostics?.reason, "schema_invalid");
+      // No engine failed, so retrying the same engine could work.
+      assert.equal(result.diagnostics?.retryable, true);
+    });
+  });
+
+  it("names the cause when guardrails block the generated text", async () => {
+    await runWithMed42Answering(
+      stubSnapshotPayload(
+        "You are suffering from clinical insomnia and should take 2mg of hormone therapy nightly."
+      ),
+      async () => {
+        const result = await runGateway(snapshotRequest());
+
+        assert.equal(result.ok, true);
+        if (!result.ok) return;
+        assert.equal(result.diagnostics?.reason, "guardrail_blocked");
+        assert.match(result.diagnostics?.message ?? "", /safety checks/i);
+      }
+    );
+  });
+
+  it("does not attempt the same deployment and model twice", async () => {
+    // `med42` and `llama` are both pointed at one hosted model in the current
+    // configuration. Retrying the identical endpoint after a timeout cannot
+    // succeed where the first attempt did not — it only doubles how long a member
+    // waits before the deterministic fallback answers.
+    const originals = new Map(listProviderNames().map((name) => [name, getProvider(name)!]));
+    const identity = { model: "shared/model", deployment: "shared-host" };
+    for (const name of originals.keys()) {
+      overrideProviderForTests(
+        name,
+        new StubProvider(
+          name,
+          async () => {
+            throw new ModelProviderError("timeout", name, "no response", { httpStatus: null });
+          },
+          identity
+        )
+      );
+    }
+
+    try {
+      const result = await runGateway(snapshotRequest());
+
+      assert.equal(result.ok, true);
+      if (!result.ok) return;
+      assert.equal(
+        result.provenance.attemptCount,
+        1,
+        "an identical endpoint must be tried once, not once per registration"
+      );
+      assert.equal(result.provenance.degradation?.engines.length, 1);
+    } finally {
+      for (const [name, original] of originals) overrideProviderForTests(name, original);
+    }
+  });
+
+  it("still attempts a genuinely different engine after a shared one fails", async () => {
+    // The dedupe must not collapse a real fallback: a second engine on another
+    // deployment is exactly the redundancy the chain exists for.
+    const originals = new Map(listProviderNames().map((name) => [name, getProvider(name)!]));
+    overrideProviderForTests(
+      "med42",
+      new StubProvider(
+        "med42",
+        async () => {
+          throw new ModelProviderError("unavailable", "med42", "down");
+        },
+        { model: "model-a", deployment: "host-a" }
+      )
+    );
+    overrideProviderForTests(
+      "llama",
+      new StubProvider(
+        "llama",
+        async () => {
+          throw new ModelProviderError("unavailable", "llama", "down");
+        },
+        { model: "model-b", deployment: "host-b" }
+      )
+    );
+
+    try {
+      const result = await runGateway(snapshotRequest());
+      assert.equal(result.ok, true);
+      if (!result.ok) return;
+      // The claim is that distinct engines are still each given a chance, not how
+      // many entries the configured chain happens to have.
+      const attempted = result.provenance.degradation?.engines.map((failure) => failure.provider) ?? [];
+      assert.ok(attempted.includes("med42"), "the primary must be attempted");
+      assert.ok(
+        attempted.includes("llama"),
+        `a different deployment must still be tried, got: ${attempted.join(", ")}`
+      );
+    } finally {
+      for (const [name, original] of originals) overrideProviderForTests(name, original);
     }
   });
 });

@@ -16,7 +16,7 @@ export type {
   ProviderHealth,
   ProviderHealthStatus,
 } from "./provider.js";
-export { ModelProviderError, toClientSafeProviderMessage } from "./provider.js";
+export { ModelProviderError, redactProviderText, toClientSafeProviderMessage } from "./provider.js";
 
 export type {
   ConfidenceClass,
@@ -32,6 +32,11 @@ export type {
   GatewayConfidence,
   GatewayContext,
   GatewayCitation,
+  GatewayDegradation,
+  GatewayDegradationDiagnostics,
+  GatewayDegradationReason,
+  GatewayDomainTrend,
+  GatewayEngineFailure,
   GatewayFailure,
   GatewayFeature,
   GatewayNextStep,
@@ -44,6 +49,7 @@ export type {
   GatewayResultStatus,
   GatewaySafetyStatus,
   GatewaySuccess,
+  GatewayTrendSignals,
   PartnerDigestOutput,
   PersonalSnapshotOutput,
   RetrievedEvidence,

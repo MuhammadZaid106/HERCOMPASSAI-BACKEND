@@ -51,6 +51,17 @@ These values were calculated deterministically by HerCompassAI. Interpret them o
 {{DETERMINISTIC_METRICS}}
 </deterministic_context>
 
+<deterministic_trend_engine>
+Verified Trend Engine calculations over the member's logged check-ins. Already calculated — restate, never recompute.
+If insufficient_data is true, say there is not yet enough logged data to describe a change.
+{{TREND_ENGINE_VALUES}}
+</deterministic_trend_engine>
+
+<cross_source_signals>
+agree: {{CONSISTENT_SIGNALS}}
+conflict: {{CONFLICTING_SIGNALS}}
+</cross_source_signals>
+
 <reported_areas>
 {{REPORTED_AREAS}}
 </reported_areas>

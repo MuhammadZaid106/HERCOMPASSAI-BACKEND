@@ -141,6 +141,12 @@ export const AI_GATEWAY_CONFIG = {
 
   limits: {
     timeoutMs: env.AI_GATEWAY_TIMEOUT_MS,
+    /**
+     * Defaults to the generation timeout so a provider that answers health checks
+     * can never be reported as degraded purely because a custom generation
+     * timeout was raised above the probe budget.
+     */
+    healthTimeoutMs: env.AI_GATEWAY_HEALTH_TIMEOUT_MS ?? env.AI_GATEWAY_TIMEOUT_MS,
     maxFallbackAttempts: env.AI_GATEWAY_MAX_FALLBACK_ATTEMPTS,
     /** Hard cap on characters of assembled model context. */
     maxContextChars: 12000,
@@ -150,6 +156,20 @@ export const AI_GATEWAY_CONFIG = {
     maxNextSteps: 3,
     maxReportedAreas: 12,
     maxOutputChars: 20000,
+  },
+
+  /**
+   * Deterministic Trend Engine window.
+   *
+   * 30 days is the shortest window in which a half-over-half comparison is
+   * meaningful for daily check-ins, and it is the window the member's own
+   * dashboard shows, so the Snapshot and the trends they read describe the
+   * same period.
+   */
+  trendEngine: {
+    rangeDays: 30 as 7 | 30 | 90,
+    /** Days with at least one entry before a trend may be described at all. */
+    minimumDaysForPatterns: 3,
   },
 
   evidence: {
@@ -210,6 +230,22 @@ providers: {
     },
   },
 } as const;
+
+/**
+ * Fails at boot rather than at the first admin health check.
+ *
+ * A health probe stricter than the generation budget it is meant to validate
+ * reports a working engine as down, which is worse than having no probe: it
+ * invents an outage and points an operator at a network problem that does not
+ * exist. Silently clamping would hide the mistake, so this refuses to start.
+ */
+if (AI_GATEWAY_CONFIG.limits.healthTimeoutMs < AI_GATEWAY_CONFIG.limits.timeoutMs) {
+  throw new Error(
+    `AI_GATEWAY_HEALTH_TIMEOUT_MS (${AI_GATEWAY_CONFIG.limits.healthTimeoutMs}ms) must be greater than or equal to ` +
+      `AI_GATEWAY_TIMEOUT_MS (${AI_GATEWAY_CONFIG.limits.timeoutMs}ms); a stricter probe would report a healthy ` +
+      `engine as unavailable. Omit AI_GATEWAY_HEALTH_TIMEOUT_MS to follow the generation budget.`
+  );
+}
 
 export function getFeaturePolicy(feature: GatewayFeature): FeaturePolicy | undefined {
   return AI_GATEWAY_CONFIG.features.find((policy) => policy.feature === feature);
