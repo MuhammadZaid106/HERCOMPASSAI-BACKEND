@@ -191,6 +191,7 @@ describe("deterministic confidence", () => {
       recencyScore: 1,
       relevanceScore: 1,
       verified: true,
+      clinicianReview: "pending",
     }));
 
     const withEvidence = calculateConfidence({

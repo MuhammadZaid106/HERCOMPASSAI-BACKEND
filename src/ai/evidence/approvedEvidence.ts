@@ -4,14 +4,10 @@ import type { EvidenceRecord } from "../types/index.js";
  * Clinical Knowledge Folder — approved evidence catalog.
  *
  * PROVENANCE WARNING
- * The summaries in this file are structural placeholders. They describe the
- * subject area an evidence record covers so the retrieval, citation and SCI
- * layers are exercisable end to end. They are NOT clinical sign-off.
- *
- * Before production, the Lead Clinician must review every summary and set
- * `reviewedBy` to a named reviewer, then bump `version`. Use
- * `pnpm tsx src/scripts/evidenceCatalogAdmin.ts list | approve | retire`
- * to manage record state from a single reviewer-controlled surface.
+ * Each record names a public source body, a title, and a publication year.
+ * `clinicianReview` is `pending` and `reviewedBy` is `pending-named-clinician`.
+ * That is not a clinician sign-off. A named reviewer must replace both before
+ * the catalog can be described as clinician-approved.
  *
  * Retrieval accepts only `status: "approved"`. Arbitrary internet content can
  * never enter model context — there is no ingestion path from the web.
@@ -39,7 +35,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.85,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Menopause care guidance emphasises individualised assessment, shared decision making, and a combination of lifestyle measures alongside clinician-directed options. Vasomotor symptoms, sleep disruption and mood changes are widely reported during the menopausal transition and are commonly addressed with a combination of routine adjustments and, where appropriate, clinician-guided treatment.",
@@ -74,7 +71,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.85,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Routine preventive care at midlife combines bone health, cardiovascular risk factor review, and discussion of physical activity and nutrition. Persistent, severe or worsening symptoms warrant clinical evaluation rather than self-management alone.",
@@ -106,7 +104,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.8,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Health systems are encouraged to support women through the menopausal transition with accessible, evidence-informed care that addresses physical, psychological and social wellbeing rather than isolated symptoms.",
@@ -135,7 +134,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.75,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Metabolic health guidance centres on regular physical activity, balanced energy intake, adequate sleep and monitoring of relevant markers through routine clinical care. Individual targets are set with a healthcare professional rather than derived from general advice.",
@@ -166,7 +166,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.75,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Public health guidance recommends regular moderate physical activity and consistent sleep routines for adults, and notes that sleep difficulty is common and often improves with habit changes, while persistent insomnia warrants clinical support.",
@@ -196,7 +197,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.85,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Preventive screening recommendations are age- and risk-specific and are applied through shared clinical decision making. HerCompassAI never infers screening eligibility; that determination stays with the member and their clinician.",
@@ -227,7 +229,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.7,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Balanced eating patterns that include a variety of vegetables, whole grains, legumes, and adequate protein are associated with better overall health. Nutrient needs vary by age, activity and individual circumstances, and specific intake targets belong in clinical care.",
@@ -261,7 +264,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.85,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Healthy diet guidance emphasises fruit and vegetable intake, limited free sugars and salt, and appropriate portion balance. Diet quality matters more than any single named food, and restrictive diets should be discussed with a clinician.",
@@ -292,7 +296,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.85,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Practical nutrition guidance favours a plate made up of vegetables and fruit, whole grains, and healthy protein sources, with water as the primary drink. Small, sustainable changes are more durable than restrictive plans.",
@@ -324,7 +329,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.7,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Structured CBT techniques such as thought record, behavioural activation and graded task setting are well established for stress, worry and low mood. Self-guided versions can help, and a therapist can adapt them for individual needs.",
@@ -357,7 +363,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.7,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Regular mindfulness practice is associated with reduced perceived stress and improved emotional regulation. Brief daily practices are a reasonable starting point, and structured programmes are available through trained instructors.",
@@ -388,7 +395,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.65,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "ACT approaches emphasise noticing difficult thoughts while acting on personal values. For women navigating changing roles, energy and routines, small values-consistent actions are often more sustainable than outcome-focused goals.",
@@ -418,7 +426,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.75,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Changes in mood, anxiety, sleep or interest that persist, worsen, or interfere with daily life are a good reason to contact a healthcare professional. Support is effective and seeking it early is encouraged.",
@@ -451,7 +460,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.8,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Peer-reviewed research on menopause frequently examines sleep quality, stress reactivity, and lifestyle interventions. Individual study results vary; consensus-level sources are preferred where they exist.",
@@ -481,7 +491,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.8,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Citation graphs are used to gauge how strongly a finding is supported and how current it is. Highly cited but outdated findings are treated cautiously in favour of more recent consensus guidance.",
@@ -509,7 +520,8 @@ export const APPROVED_EVIDENCE: EvidenceRecord[] = [
     recencyScore: 0.9,
     status: "approved",
     reviewedAt: "2024-01-15",
-    reviewedBy: "clinical-knowledge-folder-seed",
+    reviewedBy: "pending-named-clinician",
+    clinicianReview: "pending",
     version: "1.0",
     summary:
       "Partner conversations are most productive when they start from what the person has shared, use open questions, and focus on one practical action at a time. Partners are encouraged to ask what support is wanted rather than assuming it.",

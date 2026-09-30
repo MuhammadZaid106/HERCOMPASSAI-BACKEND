@@ -10,6 +10,7 @@ import {
 } from "../../models/index.js";
 import { sendError, sendSuccess } from "../../utils/apiResponse.js";
 import { logger } from "../../utils/logger.js";
+import { syncPartnerInvite } from "../../services/partner/partnerInviteService.js";
 
 const libraryLog = logger.module("MEMBER-LIBRARY");
 
@@ -251,11 +252,18 @@ export async function updatePartnerSettings(
       partnerConsent: parsed.data.partnerConsent,
       partnerSharingScopes: parsed.data.partnerConsent ? [...parsed.data.scopes] : [],
     });
+    const invite = await syncPartnerInvite({
+      memberUserId: userId,
+      partnerEmail: profile.partnerEmail,
+      consent: profile.partnerConsent,
+      scopes: profile.partnerSharingScopes ?? [],
+    });
     libraryLog.info(`[${new Date().toISOString()}] partner settings updated for ${userId}`);
     sendSuccess(res, 200, "Partner settings saved", {
       partnerConsent: profile.partnerConsent,
       scopes: profile.partnerSharingScopes ?? [],
       emailOnFile: Boolean(profile.partnerEmail?.trim()),
+      inviteSent: invite.inviteSent,
     });
   } catch (error) {
     next(error);

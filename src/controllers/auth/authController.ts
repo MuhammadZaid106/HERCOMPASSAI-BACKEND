@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { OAuth2Client } from "google-auth-library";
-import { User, RefreshToken } from "../../models/index.js";
+import { User, RefreshToken, PasswordResetToken } from "../../models/index.js";
 import { sequelize } from "../../config/db.js";
 import { env } from "../../config/env.js";
 import { hashPassword } from "../../services/auth/hashPassword.js";
@@ -22,7 +22,11 @@ import {
   loginSchema,
   refreshSchema,
   googleAuthSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
 } from "./authSchemas.js";
+import { passwordResetEmail } from "../../services/mail/passwordResetEmail.js";
+import { sendMail } from "../../services/mail/sendMail.js";
 
 const authLog = logger.module("AUTH");
 
@@ -471,6 +475,67 @@ export async function googleAuthController(req: Request, res: Response): Promise
     authLog.warn("Google ID token verification failed", err);
     sendError(res, 401, "Google sign-in could not be verified.");
   }
+}
+
+const RESET_MESSAGE = "If an account exists for that email, a reset link is on its way.";
+const RESET_MS = 30 * 60 * 1000;
+
+export async function forgotPasswordController(req: Request, res: Response): Promise<void> {
+  const parsed = forgotPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(res, 400, "Enter the email on your account");
+    return;
+  }
+
+  const user = await User.findOne({ where: { email: parsed.data.email } });
+  if (user) {
+    await PasswordResetToken.update(
+      { usedAt: new Date() },
+      { where: { userId: user.id, usedAt: null } },
+    );
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    await PasswordResetToken.create({
+      userId: user.id,
+      tokenHash: hashRefreshToken(rawToken),
+      expiresAt: new Date(Date.now() + RESET_MS),
+    });
+    const message = passwordResetEmail(rawToken);
+    try {
+      await sendMail({ to: user.email, ...message });
+    } catch (error) {
+      authLog.error("Password reset email failed", error);
+    }
+  }
+
+  sendSuccess(res, 200, RESET_MESSAGE, { sent: true });
+}
+
+export async function resetPasswordController(req: Request, res: Response): Promise<void> {
+  const parsed = resetPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(res, 400, parsed.error.issues[0]?.message ?? "Check the new password");
+    return;
+  }
+
+  const token = await PasswordResetToken.findOne({
+    where: { tokenHash: hashRefreshToken(parsed.data.token) },
+  });
+  if (!token || token.usedAt || token.expiresAt.getTime() < Date.now()) {
+    sendError(res, 400, "This reset link has expired. Request a new one.");
+    return;
+  }
+
+  const user = await User.findByPk(token.userId);
+  if (!user) {
+    sendError(res, 400, "This reset link has expired. Request a new one.");
+    return;
+  }
+
+  await user.update({ passwordHash: await hashPassword(parsed.data.password) });
+  await token.update({ usedAt: new Date() });
+  await RefreshToken.update({ revoked: true }, { where: { userId: user.id } });
+  authLog.info(`Password reset completed for user ${user.id}`);
+  sendSuccess(res, 200, "Your password has been updated. You can sign in.", { reset: true });
 }
 
 

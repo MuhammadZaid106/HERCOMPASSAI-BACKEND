@@ -1,3 +1,4 @@
+import { isCitableRecord } from "./evidenceService.js";
 import { NUMERIC_TOKEN_PATTERN } from "../../ai/guardrails/languagePatterns.js";
 import { collectPermittedNumbers } from "../../ai/guardrails/guardrailService.js";
 import { AI_GATEWAY_CONFIG } from "../../config/aiGateway.js";
@@ -47,7 +48,8 @@ function toCitation(item: RetrievedEvidence): GatewayCitation {
     consensusLevel: record.consensusLevel,
     recencyScore: record.recencyScore,
     relevanceScore: item.relevanceScore,
-    verified: record.status === "approved",
+    verified: record.status === "approved" && isCitableRecord(record),
+    clinicianReview: record.clinicianReview,
   };
 }
 
@@ -70,7 +72,7 @@ export function verifyAndRepair(
     const invalid: string[] = [];
     for (const id of ids) {
       const match = allowed.get(id);
-      if (match && match.record.status === "approved") valid.push(id);
+      if (match && match.record.status === "approved" && isCitableRecord(match.record)) valid.push(id);
       else invalid.push(id);
     }
     return { valid, invalid };
@@ -268,6 +270,6 @@ function buildCitations(context: GatewayContext, citationIds: string[]): Gateway
  */
 export function buildContextCitations(context: GatewayContext): GatewayCitation[] {
   return context.evidence
-    .filter((item) => item.record.status === "approved")
+    .filter((item) => item.record.status === "approved" && isCitableRecord(item.record))
     .map(toCitation);
 }

@@ -9,6 +9,7 @@ import onboardingRoutes from "./routes/onboarding/onboardingRoutes.js";
 import trackingRoutes from "./routes/tracking/trackingRoutes.js";
 import memberRoutes from "./routes/member/memberRoutes.js";
 import aiRoutes from "./routes/ai/aiRoutes.js";
+import partnerInviteRoutes from "./routes/partner/partnerInviteRoutes.js";
 import { globalErrorHandler } from "./middleware/errorHandler.js";
 import { connectDB } from "./models/index.js";
 
@@ -95,6 +96,7 @@ app.use("/api/onboarding", onboardingRoutes);
 app.use("/api/tracking", trackingRoutes);
 app.use("/api/member", memberRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/partner", partnerInviteRoutes);
 
 
 // ─── Global Error Handler (must be last) ─────────────────────────────────────
