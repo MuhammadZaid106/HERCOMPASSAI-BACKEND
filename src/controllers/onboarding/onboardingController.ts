@@ -1,9 +1,10 @@
 import type { Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware.js";
-import { OnboardingProfile } from "../../models/index.js";
+import { OnboardingProfile, SnapshotFeedback, SnapshotVersion } from "../../models/index.js";
 import { onboardingPayloadSchema } from "./onboardingSchemas.js";
 import { calculateDeterministicScores } from "../../services/onboarding/calculateScores.js";
 import { generatePersonalSnapshot } from "../../services/onboarding/personalSnapshotService.js";
+import { notifyMember } from "../../services/notifications/notificationService.js";
 import { sendSuccess, sendError } from "../../utils/apiResponse.js";
 import { logger } from "../../utils/logger.js";
 
@@ -99,6 +100,36 @@ export async function submitOnboarding(
       await profile.update(profileData);
     } else {
       profile = await OnboardingProfile.create(profileData);
+    }
+
+    if (isCompleted) {
+      const versionCount = await SnapshotVersion.count({ where: { userId } });
+      await SnapshotVersion.create({
+        userId,
+        versionNumber: versionCount + 1,
+        completedAt: completedAt ?? new Date(),
+        dominantFocusArea: deterministicScores.dominantFocusArea,
+        scores: {
+          symptomBurdenScore: deterministicScores.symptomBurdenScore,
+          sleepDisturbanceScore: deterministicScores.sleepDisturbanceScore,
+          vitalityIndex: deterministicScores.vitalityIndex,
+          emotionalBalanceScore: deterministicScores.emotionalBalanceScore,
+        },
+      });
+
+      // The first completion is a milestone and reads differently from a
+      // re-take, so the wording follows the version count rather than claiming
+      // "your Snapshot is ready" on every edit.
+      await notifyMember({
+        userId,
+        category: "snapshot",
+        title: versionCount === 0 ? "Your Snapshot is ready" : "Snapshot updated",
+        body:
+          versionCount === 0
+            ? "Your baseline has been calculated. Open it to see where you are starting from."
+            : "Your latest answers have been scored and added to your history.",
+        targetUrl: "/app/snapshot",
+      });
     }
 
     logger.info(
@@ -216,11 +247,117 @@ export async function getPersonalSnapshot(
       return;
     }
 
+    // The service owns assembly, storage and provenance; this layer only presents.
+    //
+    // The eight sections used to be rebuilt here as literals against a `profile`
+    // variable that no longer existed in this scope, so the Snapshot endpoint did
+    // not compile and the AI wording was unreachable. `generated` distinguishes a
+    // freshly built Snapshot from a replayed one, which is what the member-facing
+    // provenance panel labels, so it travels with the payload.
     sendSuccess(res, 200, "Personal Menopause Snapshot retrieved", {
       snapshot: outcome.snapshot,
       generated: outcome.generated,
       requestId: outcome.requestId,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getSnapshotVersions(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      sendError(res, 401, "Authentication required");
+      return;
+    }
+    if (req.user?.role !== "member") {
+      sendError(res, 403, "Only member accounts can view Snapshot versions");
+      return;
+    }
+    let versions = await SnapshotVersion.findAll({
+      where: { userId },
+      order: [["versionNumber", "DESC"]],
+    });
+    if (versions.length === 0) {
+      const profile = await OnboardingProfile.findOne({ where: { userId } });
+      const scores = profile?.deterministicScores;
+      if (profile?.isCompleted && scores && typeof scores === "object") {
+        const record = scores as Record<string, unknown>;
+        await SnapshotVersion.create({
+          userId,
+          versionNumber: 1,
+          completedAt: profile.completedAt ?? profile.updatedAt ?? new Date(),
+          dominantFocusArea:
+            typeof record.dominantFocusArea === "string" ? record.dominantFocusArea : null,
+          scores: {
+            symptomBurdenScore: record.symptomBurdenScore ?? null,
+            sleepDisturbanceScore: record.sleepDisturbanceScore ?? null,
+            vitalityIndex: record.vitalityIndex ?? null,
+            emotionalBalanceScore: record.emotionalBalanceScore ?? null,
+          },
+        });
+        versions = await SnapshotVersion.findAll({
+          where: { userId },
+          order: [["versionNumber", "DESC"]],
+        });
+      }
+    }
+    sendSuccess(res, 200, "Snapshot versions retrieved", {
+      versions: versions.map((version) => ({
+        id: version.id,
+        versionNumber: version.versionNumber,
+        completedAt: version.completedAt,
+        dominantFocusArea: version.dominantFocusArea,
+        scores: version.scores,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function submitSnapshotFeedback(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      sendError(res, 401, "Authentication required");
+      return;
+    }
+    if (req.user?.role !== "member") {
+      sendError(res, 403, "Only member accounts can leave Snapshot feedback");
+      return;
+    }
+    const rating = req.body?.rating;
+    const comment = typeof req.body?.comment === "string" ? req.body.comment.trim() : "";
+    if (rating !== "helpful" && rating !== "not_helpful") {
+      sendError(res, 400, "Choose whether this Snapshot was helpful");
+      return;
+    }
+    if (comment.length > 1000) {
+      sendError(res, 400, "Keep the note under 1000 characters");
+      return;
+    }
+    const latest = await SnapshotVersion.findOne({
+      where: { userId },
+      order: [["versionNumber", "DESC"]],
+    });
+    const feedback = await SnapshotFeedback.create({
+      userId,
+      snapshotVersionId: latest?.id ?? null,
+      rating,
+      comment: comment || null,
+    });
+    logger.info(`[ONBOARDING] Snapshot feedback ${feedback.id} saved for user ${userId}`);
+    sendSuccess(res, 201, "Thank you. Your feedback has been saved", { id: feedback.id });
   } catch (error) {
     next(error);
   }

@@ -9,6 +9,7 @@ import {
   SymptomEntry,
 } from "../../models/index.js";
 import { sendError, sendSuccess } from "../../utils/apiResponse.js";
+import { notifyMember } from "../../services/notifications/notificationService.js";
 import {
   energyEntrySchema,
   lifestyleEntrySchema,
@@ -42,14 +43,51 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * Sends the daily check-in notice once the fourth area is logged.
+ *
+ * The notice must fire on the transition into "complete", not every time a
+ * completed day is edited, so it is gated on the entry having just been created.
+ * Editing an area later in the day finds an existing row and stays silent.
+ *
+ * Delivery is best-effort: counting failures are swallowed so a notification
+ * problem can never fail the check-in the member just saved.
+ */
+async function notifyIfCheckInCompleted(
+  userId: string,
+  entryDate: string,
+  created: boolean
+): Promise<void> {
+  if (!created) return;
+  try {
+    const counts = await Promise.all([
+      SymptomEntry.count({ where: { userId, entryDate } }),
+      MoodEntry.count({ where: { userId, entryDate } }),
+      SleepEntry.count({ where: { userId, entryDate } }),
+      EnergyEntry.count({ where: { userId, entryDate } }),
+    ]);
+    if (counts.some((count) => count === 0)) return;
+    await notifyMember({
+      userId,
+      category: "tracking",
+      title: "Daily check-in complete",
+      body: "All four areas are logged for today. Your trends will refresh from here.",
+      targetUrl: "/app/track",
+    });
+  } catch {
+    // Intentionally ignored: see the doc comment above.
+  }
+}
+
 export async function saveSymptomEntry(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const userId = getMemberId(req, res);
     if (!userId) return;
     const parsed = symptomEntrySchema.safeParse({ entryDate: today(), ...req.body });
     if (!parsed.success) { sendError(res, 422, "Validation failed", parsed.error.flatten().fieldErrors); return; }
-    const [entry] = await SymptomEntry.findOrCreate({ where: { userId, entryDate: parsed.data.entryDate }, defaults: { userId, ...parsed.data } });
+    const [entry, created] = await SymptomEntry.findOrCreate({ where: { userId, entryDate: parsed.data.entryDate }, defaults: { userId, ...parsed.data } });
     if (!entry.isNewRecord) await entry.update(parsed.data);
+    await notifyIfCheckInCompleted(userId, parsed.data.entryDate, created);
     sendSuccess(res, 200, "Symptoms saved", { entry });
   } catch (error) { next(error); }
 }
@@ -60,8 +98,9 @@ export async function saveMoodEntry(req: AuthenticatedRequest, res: Response, ne
     if (!userId) return;
     const parsed = moodEntrySchema.safeParse({ entryDate: today(), ...req.body });
     if (!parsed.success) { sendError(res, 422, "Validation failed", parsed.error.flatten().fieldErrors); return; }
-    const [entry] = await MoodEntry.findOrCreate({ where: { userId, entryDate: parsed.data.entryDate }, defaults: { userId, ...parsed.data } });
+    const [entry, created] = await MoodEntry.findOrCreate({ where: { userId, entryDate: parsed.data.entryDate }, defaults: { userId, ...parsed.data } });
     if (!entry.isNewRecord) await entry.update(parsed.data);
+    await notifyIfCheckInCompleted(userId, parsed.data.entryDate, created);
     sendSuccess(res, 200, "Mood saved", { entry });
   } catch (error) { next(error); }
 }
@@ -72,8 +111,9 @@ export async function saveSleepEntry(req: AuthenticatedRequest, res: Response, n
     if (!userId) return;
     const parsed = sleepEntrySchema.safeParse({ entryDate: today(), ...req.body });
     if (!parsed.success) { sendError(res, 422, "Validation failed", parsed.error.flatten().fieldErrors); return; }
-    const [entry] = await SleepEntry.findOrCreate({ where: { userId, entryDate: parsed.data.entryDate }, defaults: { userId, ...parsed.data } });
+    const [entry, created] = await SleepEntry.findOrCreate({ where: { userId, entryDate: parsed.data.entryDate }, defaults: { userId, ...parsed.data } });
     if (!entry.isNewRecord) await entry.update(parsed.data);
+    await notifyIfCheckInCompleted(userId, parsed.data.entryDate, created);
     sendSuccess(res, 200, "Sleep saved", { entry });
   } catch (error) { next(error); }
 }
@@ -84,8 +124,9 @@ export async function saveEnergyEntry(req: AuthenticatedRequest, res: Response, 
     if (!userId) return;
     const parsed = energyEntrySchema.safeParse({ entryDate: today(), ...req.body });
     if (!parsed.success) { sendError(res, 422, "Validation failed", parsed.error.flatten().fieldErrors); return; }
-    const [entry] = await EnergyEntry.findOrCreate({ where: { userId, entryDate: parsed.data.entryDate }, defaults: { userId, ...parsed.data } });
+    const [entry, created] = await EnergyEntry.findOrCreate({ where: { userId, entryDate: parsed.data.entryDate }, defaults: { userId, ...parsed.data } });
     if (!entry.isNewRecord) await entry.update(parsed.data);
+    await notifyIfCheckInCompleted(userId, parsed.data.entryDate, created);
     sendSuccess(res, 200, "Energy saved", { entry });
   } catch (error) { next(error); }
 }

@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import crypto from "crypto";
+import { Op } from "sequelize";
 import bcrypt from "bcryptjs";
 import { OAuth2Client } from "google-auth-library";
 import { User, RefreshToken } from "../../models/index.js";
@@ -17,11 +18,14 @@ import {
 } from "../../services/auth/refreshTokenPolicy.js";
 import { sendSuccess, sendError } from "../../utils/apiResponse.js";
 import { logger } from "../../utils/logger.js";
+import { notifySecurityEvent } from "../../services/notifications/notificationService.js";
 import {
   registerSchema,
   loginSchema,
   refreshSchema,
   googleAuthSchema,
+  changePasswordSchema,
+  sessionSchema,
 } from "./authSchemas.js";
 
 const authLog = logger.module("AUTH");
@@ -64,6 +68,31 @@ async function issueSession(user: User): Promise<{
   });
 
   return { accessToken, refreshToken };
+}
+
+/**
+ * Warns the member when a fresh sign-in joins an already signed-in device.
+ *
+ * Called after the new session is written, so a single active session means the
+ * sign-in just made is the only one and there is no other device to warn about.
+ * Only a second (or later) live session carries news worth a security notice.
+ *
+ * Delivery is best-effort: a failed notice must never fail the sign-in itself.
+ */
+async function notifyIfAdditionalSession(userId: string): Promise<void> {
+  try {
+    const active = await RefreshToken.count({
+      where: { userId, revoked: false, expiresAt: { [Op.gt]: new Date() } },
+    });
+    if (active < 2) return;
+    await notifySecurityEvent(userId, {
+      title: "New sign-in to your account",
+      body: "A new device signed in. If this was not you, change your password and sign other devices out.",
+      targetUrl: "/app/settings",
+    });
+  } catch {
+    // Intentionally ignored: see the doc comment above.
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -160,6 +189,8 @@ export async function loginController(req: Request, res: Response): Promise<void
       role: user.role,
       plan: user.plan,
     });
+
+    await notifyIfAdditionalSession(user.id);
 
     sendSuccess(res, 200, "Login successful", {
       user: {
@@ -453,6 +484,8 @@ export async function googleAuthController(req: Request, res: Response): Promise
 
     const { accessToken, refreshToken } = await issueSession(user);
 
+    await notifyIfAdditionalSession(user.id);
+
     sendSuccess(res, 200, "Google authentication successful", {
       user: {
         id: user.id,
@@ -470,6 +503,191 @@ export async function googleAuthController(req: Request, res: Response): Promise
     // token. Log the reason, never the token.
     authLog.warn("Google ID token verification failed", err);
     sendError(res, 401, "Google sign-in could not be verified.");
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/auth/change-password
+//
+// Changing a password ends every session that existed before it, then issues the
+// caller a fresh pair. The member stays signed in on this device while every
+// other device is signed out, which is the point: a password change is how
+// someone responds to believing a session was stolen, so leaving the old tokens
+// alive would defeat it.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function changePasswordController(req: Request, res: Response): Promise<void> {
+  const authReq = req as { user?: { userId: string } };
+  const parsed = changePasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(res, 422, "Validation failed", parsed.error.flatten().fieldErrors);
+    return;
+  }
+  if (!authReq.user?.userId) {
+    sendError(res, 401, "Not authenticated");
+    return;
+  }
+
+  try {
+    const user = await User.findByPk(authReq.user.userId);
+    if (!user) {
+      sendError(res, 404, "User not found");
+      return;
+    }
+
+    // A Google-only account never had a password. Accepting one here would set a
+    // credential the member does not use and cannot discover.
+    if (!user.passwordHash) {
+      sendError(res, 400, "This account signs in with Google, so it has no password to change.");
+      return;
+    }
+
+    const matches = await bcrypt.compare(parsed.data.currentPassword, user.passwordHash);
+    if (!matches) {
+      // Deliberately does not say which half was wrong: that would confirm to an
+      // attacker that the password itself was correct.
+      sendError(res, 401, "That current password is not correct.");
+      return;
+    }
+
+    const unchanged = await bcrypt.compare(parsed.data.newPassword, user.passwordHash);
+    if (unchanged) {
+      sendError(res, 422, "Choose a password you have not used here before.");
+      return;
+    }
+
+    await user.update({ passwordHash: await hashPassword(parsed.data.newPassword) });
+
+    // Every refresh token, the caller's included: they are about to be replaced.
+    const [endedSessions] = await RefreshToken.update(
+      { revoked: true },
+      { where: { userId: user.id } },
+    );
+
+    const { accessToken, refreshToken } = await issueSession(user);
+
+    authLog.info(`🔑 Password changed; ${endedSessions} session(s) ended`, {
+      userId: user.id,
+    });
+
+    await notifySecurityEvent(user.id, {
+      title: "Your password was changed",
+      body: "Every other device was signed out. If this was not you, reset your password right away.",
+    });
+
+    sendSuccess(res, 200, "Password updated", {
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        plan: user.plan,
+      },
+      accessToken,
+      refreshToken,
+      endedSessions,
+    });
+  } catch (err) {
+    authLog.error("Change password error", err);
+    sendError(res, 500, "An unexpected error occurred. Please try again.");
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/auth/sessions
+//
+// How many logins are currently live. Deliberately a count and not a list: the
+// access token identifies a user but not a device, and the refresh token is a
+// secret that has no business in a URL that gets logged. See
+// revokeOtherSessionsController for how "this device" is established.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function getSessionsController(req: Request, res: Response): Promise<void> {
+  const authReq = req as { user?: { userId: string } };
+  if (!authReq.user?.userId) {
+    sendError(res, 401, "Not authenticated");
+    return;
+  }
+
+  try {
+    const activeSessions = await RefreshToken.count({
+      where: {
+        userId: authReq.user.userId,
+        revoked: false,
+        expiresAt: { [Op.gt]: new Date() },
+      },
+    });
+    sendSuccess(res, 200, "Sessions retrieved", { activeSessions });
+  } catch (err) {
+    authLog.error("Get sessions error", err);
+    sendError(res, 500, "An unexpected error occurred");
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/auth/sessions/revoke-others
+//
+// Every refresh token descends from one login, and rotation keeps that family
+// together (see refreshController). The caller identifies its own family by
+// presenting its refresh token, so no device fingerprint is trusted. Every
+// family that is not the caller's is ended.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function revokeOtherSessionsController(req: Request, res: Response): Promise<void> {
+  const authReq = req as { user?: { userId: string } };
+  const parsed = sessionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(res, 422, "Validation failed", parsed.error.flatten().fieldErrors);
+    return;
+  }
+  if (!authReq.user?.userId) {
+    sendError(res, 401, "Not authenticated");
+    return;
+  }
+
+  try {
+    const current = await RefreshToken.findOne({
+      where: { tokenHash: hashRefreshToken(parsed.data.refreshToken) },
+    });
+
+    // With no live token of its own there is no way to tell the caller's session
+    // apart from the others. Refuse rather than sign the caller out as well.
+    if (!current || current.userId !== authReq.user.userId || current.revoked) {
+      sendError(res, 401, "Your session is no longer active. Please sign in again.");
+      return;
+    }
+
+    const rows = await RefreshToken.findAll({ where: { userId: authReq.user.userId } });
+    const now = new Date();
+    const currentFamily = current.familyId ?? null;
+
+    // Compared in JS rather than with `familyId: { [Op.ne]: ... }`: rows written
+    // before reuse detection existed have a NULL family, and a SQL inequality
+    // silently skips NULLs, which would leave those sessions alive.
+    const otherRows = rows.filter((row) => (row.familyId ?? null) !== currentFamily);
+    const wasActive = otherRows.filter((row) => !row.revoked && row.expiresAt > now);
+    const ids = otherRows.map((row) => row.id);
+
+    if (ids.length > 0) {
+      await RefreshToken.update({ revoked: true }, { where: { id: ids } });
+    }
+
+    authLog.info(`🚪 ${wasActive.length} other session(s) revoked`, {
+      userId: authReq.user.userId,
+    });
+
+    if (wasActive.length > 0) {
+      await notifySecurityEvent(authReq.user.userId, {
+        title: "Other devices were signed out",
+        body: `${wasActive.length} other ${
+          wasActive.length === 1 ? "session was" : "sessions were"
+        } signed out. This device stays signed in.`,
+      });
+    }
+
+    sendSuccess(res, 200, "Other sessions signed out", {
+      revokedSessions: wasActive.length,
+    });
+  } catch (err) {
+    authLog.error("Revoke other sessions error", err);
+    sendError(res, 500, "An unexpected error occurred");
   }
 }
 

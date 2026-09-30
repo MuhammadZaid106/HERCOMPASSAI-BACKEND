@@ -25,6 +25,15 @@ export class Notification extends Model<
   declare title: string;
   declare body: string;
   declare readAt: CreationOptional<Date | null>;
+  /**
+   * A privacy or security event rather than routine news.
+   *
+   * Governed by the `privacySecurity` preference instead of the per-category
+   * toggle, so switching off "Account notices" cannot hide a password change.
+   */
+  declare important: CreationOptional<boolean>;
+  /** Where the notice points. Null when there is nowhere to go. */
+  declare targetUrl: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -56,6 +65,8 @@ Notification.init(
     title: { type: DataTypes.STRING(255), allowNull: false },
     body: { type: DataTypes.TEXT, allowNull: false },
     readAt: { type: DataTypes.DATE, allowNull: true },
+    important: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    targetUrl: { type: DataTypes.STRING(255), allowNull: true },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,

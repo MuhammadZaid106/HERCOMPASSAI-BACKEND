@@ -6,6 +6,7 @@ import { logger } from "../../utils/logger.js";
 import { getProviderHealth } from "../../ai/providers/index.js";
 import { listPromptBundles } from "../../ai/prompts/index.js";
 import { AI_GATEWAY_CONFIG } from "../../config/aiGateway.js";
+import { loadInsightLogSignals } from "../../services/member/loadInsightLogSignals.js";
 import {
   loadContextSource,
   runGateway,
@@ -54,6 +55,7 @@ function consentFromProfile(profile: {
 interface GenerateOptions {
   feature: GatewayFeature;
   successMessage: string;
+  logSignals?: Record<string, string | number | boolean>;
 }
 
 async function handleGenerate(
@@ -108,6 +110,7 @@ async function handleGenerate(
     partnerScope: partnerSupportIsRelevant(source.profile)
       ? (source.profile.partnerSharingScopes ?? [])
       : [],
+    logSignals: options.logSignals,
   });
 
   if (!result.ok) {
@@ -165,9 +168,11 @@ export async function generateInsight(
   next: NextFunction
 ): Promise<void> {
   try {
+    const userId = req.user?.userId;
     await handleGenerate(req, res, {
       feature: "ai_insight",
       successMessage: "Your insight is ready",
+      logSignals: userId ? await loadInsightLogSignals(userId) : undefined,
     });
   } catch (error) {
     next(error);
