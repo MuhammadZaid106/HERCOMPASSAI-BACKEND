@@ -9,6 +9,8 @@ import {
   changePasswordController,
   getSessionsController,
   revokeOtherSessionsController,
+  forgotPasswordController,
+  resetPasswordController,
 } from "../../controllers/auth/authController.js";
 import { authRateLimiter } from "../../middleware/rateLimiter.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
@@ -51,6 +53,8 @@ router.post("/logout", authRateLimiter, logoutController);
  * Protected: returns current user profile
  */
 router.get("/me", requireAuth, meController);
+router.post("/forgot-password", authRateLimiter, forgotPasswordController);
+router.post("/reset-password", authRateLimiter, resetPasswordController);
 
 /**
  * POST /api/auth/change-password

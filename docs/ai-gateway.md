@@ -162,12 +162,7 @@ means.
 
 ## Evidence governance
 
-`src/ai/evidence/approvedEvidence.ts` is a **seed catalog**. Its summaries and
-quality metadata are placeholders, and `reviewedBy` is recorded as
-`clinical-knowledge-folder-seed`. Before production, a named Lead Clinician must
-verify every record's wording, publication date and quality ratings, and set a real
-`reviewedBy`. Records must also be moved into a governed store; the catalog is
-in-process so that a bad deployment cannot silently reach production.
+`src/ai/evidence/approvedEvidence.ts` is a **source-labeled catalog**. Each record names a public source, a title, and a publication year. `clinicianReview` is `pending` and `reviewedBy` is `pending-named-clinician`. A named clinician still has to approve the wording. Retrieval drops any record that has no source name or year. A citation is shown only when it matches a record retrieved for that request.
 
 Retrieval is deterministic lexical scoring: keyword and phrase overlap weighted by
 authority, consensus and recency. `scoreRecord` in

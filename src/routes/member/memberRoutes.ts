@@ -22,6 +22,14 @@ import {
   updateNotificationPreferences,
   updatePartnerSettings,
 } from "../../controllers/member/memberLibraryController.js";
+import {
+  getRecipe,
+  getWorkout,
+  listRecipes,
+  listWorkouts,
+  saveRecipe,
+  saveWorkout,
+} from "../../controllers/member/contentLibraryController.js";
 
 const router: IRouter = Router();
 router.use(requireAuth);
@@ -44,5 +52,11 @@ router.get("/explore-progress", getExploreProgress);
 router.put("/explore-progress/:slug", updateExploreProgress);
 router.post("/support", createSupportRequest);
 router.put("/partner", updatePartnerSettings);
+router.get("/recipes", listRecipes);
+router.get("/recipes/:slug", getRecipe);
+router.put("/recipes/:slug", saveRecipe);
+router.get("/workouts", listWorkouts);
+router.get("/workouts/:slug", getWorkout);
+router.put("/workouts/:slug", saveWorkout);
 
 export default router;

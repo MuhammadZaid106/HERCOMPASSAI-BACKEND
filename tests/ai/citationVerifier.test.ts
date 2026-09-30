@@ -7,6 +7,7 @@ import {
   verifyAndRepair,
 } from "../../src/services/ai-gateway/citationVerifier.js";
 import { buildContext } from "../../src/services/ai-gateway/contextAssembler.js";
+import { isCitableRecord } from "../../src/services/ai-gateway/evidenceService.js";
 import { GRANTED_CONSENT, makeContextSource, validSnapshotPayload } from "./fixtures.js";
 
 /**
@@ -53,6 +54,14 @@ describe("verifyAndRepair", () => {
     );
     assert.deepEqual(result.usedCitationIds, [citationId]);
     assert.equal(result.unsupportable, false);
+  });
+
+  it("does not cite a record that has no publication year", () => {
+    const context = contextFor();
+    const record = context.evidence[0]?.record;
+    assert.ok(record);
+    assert.equal(isCitableRecord({ ...record, publicationDate: "" }), false);
+    assert.equal(isCitableRecord({ ...record, sourceName: "  " }), false);
   });
 
   it("removes a recommendation citing an unknown source", () => {
@@ -140,3 +149,4 @@ describe("verifyAndRepair", () => {
     assert.equal(result.unsupportable, true);
   });
 });
+  

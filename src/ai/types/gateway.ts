@@ -49,7 +49,10 @@ export interface EvidenceRecord {
   recencyScore: number;
   status: EvidenceStatus;
   reviewedAt: string;
+  /** `pending-named-clinician` until a person signs the wording. */
   reviewedBy: string;
+  /** Software review state. `pending` is not a clinician signature. */
+  clinicianReview: "pending" | "signed";
   version: string;
   /** Clinical summary used to ground generation. */
   summary: string;
@@ -168,6 +171,7 @@ export interface GatewayCitation {
   recencyScore: number;
   relevanceScore: number;
   verified: boolean;
+  clinicianReview: "pending" | "signed";
 }
 
 export interface GatewayRecommendation {

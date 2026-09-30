@@ -109,6 +109,24 @@ interface ScoreResult {
   matched: string[];
 }
 
+/** A record with no source name or publication year cannot be cited. */
+export function isCitableRecord(record: EvidenceRecord): boolean {
+  const year = Number.parseInt(record.publicationDate.slice(0, 4), 10);
+  const pendingLabel = record.reviewedBy === "pending-named-clinician";
+  const reviewOk =
+    record.clinicianReview === "pending"
+      ? pendingLabel
+      : record.clinicianReview === "signed" && !pendingLabel && record.reviewedBy.trim().length > 0;
+  return (
+    record.sourceName.trim().length > 0 &&
+    record.title.trim().length > 0 &&
+    Number.isInteger(year) &&
+    year >= 1990 &&
+    year <= 2100 &&
+    reviewOk
+  );
+}
+
 function qualityFactor(record: EvidenceRecord): number {
   // Authority dominates, then consensus, then recency. Weights are declared in
   // config so Evidence Governance can tune them without a code change.
@@ -184,6 +202,7 @@ export function retrieveEvidence(query: EvidenceQuery): EvidenceRetrievalResult 
 
   for (const record of APPROVED_EVIDENCE) {
     if (!AI_GATEWAY_CONFIG.evidence.allowedStatuses.includes(record.status)) continue;
+    if (!isCitableRecord(record)) continue;
 
     const { relevance, matched } = scoreRecord(record, queryTokens, topicTokens);
     if (relevance < AI_GATEWAY_CONFIG.evidence.minRelevance) continue;
@@ -213,7 +232,9 @@ export function retrieveEvidence(query: EvidenceQuery): EvidenceRetrievalResult 
 }
 
 export function listApprovedEvidence(): EvidenceRecord[] {
-  return APPROVED_EVIDENCE.filter((record) =>
-    AI_GATEWAY_CONFIG.evidence.allowedStatuses.includes(record.status)
+  return APPROVED_EVIDENCE.filter(
+    (record) =>
+      AI_GATEWAY_CONFIG.evidence.allowedStatuses.includes(record.status) &&
+      isCitableRecord(record)
   );
 }

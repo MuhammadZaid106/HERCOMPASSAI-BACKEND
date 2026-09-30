@@ -35,6 +35,11 @@ const envSchema = z.object({
    */
   GOOGLE_CLIENT_ID: z.string().default(""),
   CORS_ORIGIN: z.string().default("http://localhost:3000"),
+  /** Public site used in email links. Falls back to the first CORS origin. */
+  FRONTEND_URL: z.string().default(""),
+  SMTP_USER: z.string().default(""),
+  SMTP_APP_PASSWORD: z.string().default(""),
+  MAIL_FROM: z.string().default(""),
 
   // ─── HerCompass AI Gateway ───────────────────────────────────────────────────
   AI_GATEWAY_ENABLED: booleanFromEnv(true),

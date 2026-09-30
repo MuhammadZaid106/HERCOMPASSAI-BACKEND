@@ -17,6 +17,9 @@ import { SnapshotFeedback } from "./SnapshotFeedback.js";
 import { NotificationPreference } from "./NotificationPreference.js";
 import { ExploreProgress } from "./ExploreProgress.js";
 import { SupportRequest } from "./SupportRequest.js";
+import { PasswordResetToken } from "./PasswordResetToken.js";
+import { PartnerInvite } from "./PartnerInvite.js";
+import { SavedContent } from "./SavedContent.js";
 
 // Setup Model Associations
 User.hasMany(RefreshToken, {
@@ -118,6 +121,12 @@ User.hasMany(ExploreProgress, { foreignKey: "userId", as: "exploreProgress", onD
 ExploreProgress.belongsTo(User, { foreignKey: "userId", as: "user" });
 User.hasMany(SupportRequest, { foreignKey: "userId", as: "supportRequests", onDelete: "CASCADE" });
 SupportRequest.belongsTo(User, { foreignKey: "userId", as: "user" });
+User.hasMany(PasswordResetToken, { foreignKey: "userId", as: "passwordResetTokens", onDelete: "CASCADE" });
+PasswordResetToken.belongsTo(User, { foreignKey: "userId", as: "user" });
+User.hasMany(PartnerInvite, { foreignKey: "memberUserId", as: "sentPartnerInvites", onDelete: "CASCADE" });
+PartnerInvite.belongsTo(User, { foreignKey: "memberUserId", as: "member" });
+User.hasMany(SavedContent, { foreignKey: "userId", as: "savedContent", onDelete: "CASCADE" });
+SavedContent.belongsTo(User, { foreignKey: "userId", as: "user" });
 
 export {
   sequelize,
@@ -140,4 +149,7 @@ export {
   NotificationPreference,
   ExploreProgress,
   SupportRequest,
+  PasswordResetToken,
+  PartnerInvite,
+  SavedContent,
 };
