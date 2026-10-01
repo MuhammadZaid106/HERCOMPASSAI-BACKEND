@@ -87,7 +87,7 @@ PersonalSnapshot.init(
       allowNull: true,
     },
     confidenceScore: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DOUBLE,
       allowNull: true,
     },
     safetyStatus: {

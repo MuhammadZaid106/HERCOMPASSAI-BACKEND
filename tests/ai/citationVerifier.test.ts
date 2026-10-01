@@ -12,8 +12,9 @@ import { GRANTED_CONSENT, makeContextSource, validSnapshotPayload } from "./fixt
 
 /**
  * Citation verification is the anti-hallucination control. The spec allows three
- * responses to an unsupported claim — remove, rewrite, or block — and the Gateway
- * implements removal, deterministically, so the behaviour is auditable.
+ * responses to an unsupported claim — remove, rewrite, or block. An unknown id
+ * is removed. When that empties the recommendation list and evidence was
+ * retrieved, software rewrites the list from those cards.
  */
 
 function contextFor(overrides = {}) {
@@ -64,19 +65,45 @@ describe("verifyAndRepair", () => {
     assert.equal(isCitableRecord({ ...record, sourceName: "  " }), false);
   });
 
-  it("removes a recommendation citing an unknown source", () => {
+  it("keeps a citation id that differs only by case or surrounding spaces", () => {
     const context = contextFor();
+    const citationId = context.evidence[0].record.citationId;
+    const payload = validSnapshotPayload(`  ${citationId.toLowerCase()}  `);
+
+    const result = verifyAndRepair(payload, context);
+
+    assert.deepEqual(result.repaired.personalizedRecommendations[0].citationIds, [citationId]);
+    assert.equal(result.unsupportable, false);
+  });
+
+  it("replaces recommendations that cite an unknown source with retrieved cards", () => {
+    const context = contextFor();
+    const allowed = new Set(context.evidence.map((item) => item.record.citationId));
     const payload = validSnapshotPayload("HC-CF-9999-DOES-NOT-EXIST");
 
     const result = verifyAndRepair(payload, context);
 
-    assert.equal(result.repaired.personalizedRecommendations.length, 0);
+    assert.ok(result.repaired.personalizedRecommendations.length > 0);
     assert.ok(result.findings.some((finding) => finding.check === "citation_validity"));
     assert.ok(result.findings.some((finding) => finding.check === "evidence_support"));
+    assert.equal(result.unsupportable, false);
+    for (const recommendation of result.repaired.personalizedRecommendations) {
+      assert.ok(recommendation.citationIds.every((id) => allowed.has(id)));
+      assert.equal(recommendation.what.includes("HC-CF-9999"), false);
+    }
+  });
+
+  it("stays unsupportable when no evidence was retrieved", () => {
+    const context = { ...contextFor(), evidence: [] };
+    const payload = validSnapshotPayload("NAMS-MENO-001");
+
+    const result = verifyAndRepair(payload, context);
+
+    assert.equal(result.repaired.personalizedRecommendations.length, 0);
     assert.equal(result.unsupportable, true);
   });
 
-  it("removes a recommendation containing a figure absent from the context", () => {
+  it("replaces a recommendation that contains a figure absent from the context", () => {
     const context = contextFor();
     const citationId = context.evidence[0].record.citationId;
     const payload = validSnapshotPayload(citationId);
@@ -85,8 +112,13 @@ describe("verifyAndRepair", () => {
 
     const result = verifyAndRepair(payload, context);
 
-    assert.equal(result.repaired.personalizedRecommendations.length, 0);
+    assert.ok(result.repaired.personalizedRecommendations.length > 0);
     assert.ok(result.findings.some((finding) => finding.check === "numeric_grounding"));
+    assert.ok(
+      result.repaired.personalizedRecommendations.every(
+        (recommendation) => !recommendation.what.includes("94")
+      )
+    );
   });
 
   it("drops the partner-support section when its citation is unknown", () => {

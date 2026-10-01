@@ -1,4 +1,5 @@
 import { AI_GATEWAY_CONFIG } from "../../config/aiGateway.js";
+import { isCitableRecord } from "./evidenceService.js";
 import type {
   GatewayCitation,
   GatewayContext,
@@ -159,16 +160,15 @@ function trendObservations(context: GatewayContext): string[] {
   ];
 }
 
-export function buildSnapshotFallback(
-  context: GatewayContext,
-  citations: GatewayCitation[],
-  confidence: GatewayConfidence
-): PersonalSnapshotOutput | null {
-  if (context.evidence.length === 0) return null;
-
-  const reported = context.reportedAreas;
-
-  const recommendations: GatewayRecommendation[] = context.evidence
+/**
+ * Recommendations written by software from the cards retrieved for this request.
+ *
+ * Each line cites that card's real id. Used when the model's own recommendations
+ * were removed because their citation ids were not in the retrieved list.
+ */
+export function recommendationsFromEvidence(context: GatewayContext): GatewayRecommendation[] {
+  return context.evidence
+    .filter((item) => item.record.status === "approved" && isCitableRecord(item.record))
     .slice(0, AI_GATEWAY_CONFIG.limits.maxRecommendations)
     .map((item) => {
       const template = templateFor(item.record.topicAreas);
@@ -180,6 +180,18 @@ export function buildSnapshotFallback(
         citationIds: [item.record.citationId],
       };
     });
+}
+
+export function buildSnapshotFallback(
+  context: GatewayContext,
+  citations: GatewayCitation[],
+  confidence: GatewayConfidence
+): PersonalSnapshotOutput | null {
+  if (context.evidence.length === 0) return null;
+
+  const reported = context.reportedAreas;
+
+  const recommendations = recommendationsFromEvidence(context);
 
   const nextSteps: GatewayNextStep[] = [
     { horizon: "today", action: "Log one entry for symptoms, mood, sleep or energy." },

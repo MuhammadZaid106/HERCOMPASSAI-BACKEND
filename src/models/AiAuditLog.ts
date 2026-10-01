@@ -100,10 +100,10 @@ AiAuditLog.init(
     updatedAt: false,
     underscored: true,
     indexes: [
-      { fields: ["userId", "feature"] },
-      { fields: ["createdAt"] },
-      { unique: true, fields: ["requestId"] },
-      { fields: ["resultStatus", "createdAt"] },
+      { fields: ["user_id", "feature"] },
+      { fields: ["created_at"] },
+      { unique: true, fields: ["request_id"] },
+      { fields: ["result_status", "created_at"] },
     ],
   }
 );
