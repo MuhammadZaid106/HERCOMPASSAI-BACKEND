@@ -20,6 +20,7 @@ import { SupportRequest } from "./SupportRequest.js";
 import { PasswordResetToken } from "./PasswordResetToken.js";
 import { PartnerInvite } from "./PartnerInvite.js";
 import { SavedContent } from "./SavedContent.js";
+import { EntitlementUsage } from "./EntitlementUsage.js";
 
 // Setup Model Associations
 User.hasMany(RefreshToken, {
@@ -128,6 +129,12 @@ PartnerInvite.belongsTo(User, { foreignKey: "memberUserId", as: "member" });
 User.hasMany(SavedContent, { foreignKey: "userId", as: "savedContent", onDelete: "CASCADE" });
 SavedContent.belongsTo(User, { foreignKey: "userId", as: "user" });
 
+// ─── Entitlements ─────────────────────────────────────────────────────────────
+// Metered AI usage. Cascades with the account: a deleted member leaves no
+// allowance behind, and a fresh account of the same email starts clean.
+User.hasMany(EntitlementUsage, { foreignKey: "userId", as: "entitlementUsage", onDelete: "CASCADE" });
+EntitlementUsage.belongsTo(User, { foreignKey: "userId", as: "user" });
+
 export {
   sequelize,
   connectDB,
@@ -152,4 +159,5 @@ export {
   PasswordResetToken,
   PartnerInvite,
   SavedContent,
+  EntitlementUsage,
 };

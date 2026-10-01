@@ -33,6 +33,11 @@ import {
   resolveMemberPlan,
 } from "../../services/member/planCatalog.js";
 import {
+  clampHistoryWindow,
+  entitlementsFor,
+  readAiUsage,
+} from "../../services/member/entitlements.js";
+import {
   buildDashboardHomeView,
   calendarTodayKey,
   entryDateKey,
@@ -214,7 +219,17 @@ export async function getMemberProgress(
   try {
     const userId = memberId(req, res);
     if (!userId) return;
-    const days = rangeDays(req.query.range);
+    // A Free member asking for 90 days receives the 30 their plan covers, rather
+    // than an error. Clamping silently would be dishonest about what came back, so
+    // the effective window is reported alongside the requested one.
+    const requestedDays = rangeDays(req.query.range);
+    const clamped = await clampHistoryWindow(
+      { userId, role: req.user?.role },
+      requestedDays
+    );
+    // `rangeDays` narrows to 7 | 30 | 90; the clamp can only return something
+    // smaller, so re-narrow rather than widening the whole trend pipeline's types.
+    const days: 7 | 30 | 90 = clamped === 7 ? 7 : clamped === 30 ? 30 : 90;
     const where = { userId, entryDate: { [Op.gte]: startDate(days) } };
     const [symptoms, moods, sleep, energy, lifestyle, loggedDates] =
       await Promise.all([
@@ -252,6 +267,14 @@ export async function getMemberProgress(
 
     sendSuccess(res, 200, "Member progress retrieved", {
       range: `${days}d`,
+      // Present only when the plan shortened the window, so the client can say so
+      // rather than showing a 90-day selector over 30 days of data.
+      ...(days !== requestedDays
+        ? {
+            requestedRange: `${requestedDays}d`,
+            limitNotice: `Your plan includes ${days} days of history.`,
+          }
+        : {}),
       points: {
         symptoms: symptomPoints,
         mood: moodPoints,
@@ -540,6 +563,7 @@ export async function getMemberSubscription(
     }
     const plan = resolveMemberPlan(user.plan);
     const current = planSummary(plan);
+    const usage = await readAiUsage({ userId, role: req.user?.role });
     sendSuccess(res, 200, "Subscription retrieved", {
       plan,
       label: `${current.label} Plan`,
@@ -547,6 +571,11 @@ export async function getMemberSubscription(
       summary: current.summary,
       plans: planSummaries,
       comparison: planComparison,
+      // Sent so the client can render locked sections and the remaining AI
+      // allowance. Presentation only — the server enforces both regardless of
+      // what this says.
+      entitlements: entitlementsFor(plan),
+      aiUsage: usage,
     });
   } catch (error) {
     next(error);

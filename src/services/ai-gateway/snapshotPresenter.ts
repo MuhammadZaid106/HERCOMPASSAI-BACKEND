@@ -209,11 +209,19 @@ export function presentSnapshot(params: PresentSnapshotParams): PresentedSnapsho
   });
 
   const observation_6 = observation(6, "Personalized Recommendations", "Your Evidence-Informed Steps", {
+    // `citationIds` was dropped here even though the view type declared the field.
+    // The Gateway verifies each recommendation's citations individually, and the
+    // section-level `evidenceNote` flattened them into one undifferentiated list —
+    // so "why is this step evidence-informed?" could not be answered from the
+    // payload, and a recommendation the model failed to cite was indistinguishable
+    // from one it cited well. Each card now carries its own verified ids.
     recommendations: output.personalizedRecommendations.slice(0, 5).map((recommendation) => ({
       action: recommendation.what,
       why: recommendation.why,
       category: recommendation.category,
       start: recommendation.start,
+      citationIds: recommendation.citationIds,
+      evidenceNote: citationNote(recommendation.citationIds, output),
     })),
     evidenceNote: citationNote(
       output.personalizedRecommendations.flatMap((recommendation) => recommendation.citationIds),

@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { PartnerInvite } from "../../models/PartnerInvite.js";
 import { Notification } from "../../models/Notification.js";
+import { User } from "../../models/User.js";
 import { logger } from "../../utils/logger.js";
 import { partnerInviteEmail } from "../mail/partnerInviteEmail.js";
 import { sendMail } from "../mail/sendMail.js";
@@ -92,6 +93,28 @@ export async function respondToPartnerInvite(input: {
     if (input.partnerUserId === invite.memberUserId) {
       return { ok: false, status: 403, message: "Use your partner's own account to join." };
     }
+
+    // The partner role is granted HERE, not at registration.
+    //
+    // It used to arrive as `role: "partner"` in the sign-up body, which meant any
+    // visitor could register as a partner by editing the request. A role that
+    // grants access to partner features has to be earned from a valid invitation,
+    // and this is the only place where one has been presented.
+    //
+    // The email check above is what makes this safe: the caller must already be
+    // signed in as the address the invite was sent to, and that address came from
+    // the member who chose to share.
+    const user = await User.findByPk(input.partnerUserId, { attributes: ["id", "role"] });
+    if (!user) {
+      return { ok: false, status: 401, message: "Sign in to join Partner Support." };
+    }
+    if (user.role !== "partner") {
+      await user.update({ role: "partner" });
+      inviteLog.info(`User ${user.id} joined Partner Support as a partner`, {
+        inviteFor: invite.memberUserId,
+      });
+    }
+
     await invite.update({ status: "accepted", partnerUserId: input.partnerUserId });
     await Notification.create({
       userId: invite.memberUserId,

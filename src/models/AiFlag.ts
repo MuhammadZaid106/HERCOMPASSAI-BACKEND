@@ -6,6 +6,7 @@ import {
   type CreationOptional,
 } from "sequelize";
 import { sequelize } from "../config/db.js";
+import type { AiAuditLog } from "./AiAuditLog.js";
 
 /**
  * AI flag — the internal review queue.
@@ -29,6 +30,15 @@ export class AiFlag extends Model<
   declare reviewedBy: CreationOptional<string | null>;
   declare reviewedAt: CreationOptional<Date | null>;
   declare createdAt: CreationOptional<Date>;
+
+  /**
+   * The AI event this flag points at, when loaded via include.
+   *
+   * A reviewer needs it to see which citations the generation used and how it was
+   * classified, so `listReviewQueue` eager-loads it. Optional because it is absent
+   * unless that include is present.
+   */
+  declare aiEvent?: AiAuditLog;
 }
 
 AiFlag.init(

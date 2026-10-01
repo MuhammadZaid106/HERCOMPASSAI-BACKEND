@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { AI_GATEWAY_CONFIG, getFeaturePolicy } from "../../config/aiGateway.js";
 import { getPromptBundle } from "../../ai/prompts/index.js";
-import { PersonalSnapshot, User } from "../../models/index.js";
+import { PersonalSnapshot, SnapshotVersion, User } from "../../models/index.js";
 import {
   loadContextSource,
   partnerSupportIsRelevant,
@@ -231,6 +231,41 @@ async function storeSnapshot(
   }
 }
 
+/**
+ * Attaches the generated narrative to the member's newest Snapshot version.
+ *
+ * A version row is written when the assessment is submitted, which is *before*
+ * any AI has run — the narrative does not exist yet at that point. So the two
+ * writes cannot be one: the version records the scores, and the narrative is
+ * pinned to the same version once the Gateway has approved it.
+ *
+ * Only the newest version with no narrative is filled. That keeps a replay from
+ * overwriting the text a member already read with a newer rewrite, and it means a
+ * second generation for the same version cannot silently rewrite history.
+ *
+ * Best-effort, like `storeSnapshot`: history completeness is not worth failing a
+ * response over, and a missing narrative is visible as an honest gap rather than
+ * as a wrong number.
+ */
+async function pinVersionNarrative(
+  userId: string,
+  payload: Record<string, unknown>
+): Promise<void> {
+  try {
+    const newest = await SnapshotVersion.findOne({
+      where: { userId, payload: null },
+      order: [["versionNumber", "DESC"]],
+    });
+    if (!newest) return;
+    await newest.update({ payload });
+  } catch (error) {
+    snapshotLog.warn(
+      `Could not pin the Snapshot narrative to a version for user ${userId}. History will show scores only.`,
+      error instanceof Error ? error.message : undefined
+    );
+  }
+}
+
 export interface GenerateSnapshotParams {
   userId: string;
   role: GatewayActorRole;
@@ -277,6 +312,9 @@ export async function generatePersonalSnapshot(
   if (!params.force) {
     const reusable = await findReusableSnapshot(params.userId, fingerprint);
     if (reusable) {
+      // A replay is the first Snapshot read after onboarding in many cases, so it
+      // is also the first chance to fill in the version's narrative.
+      await pinVersionNarrative(params.userId, reusable.payload);
       snapshotLog.info(
         `Replayed the stored Snapshot for user ${params.userId} (request ${reusable.requestId}).`
       );
@@ -349,6 +387,8 @@ export async function generatePersonalSnapshot(
     output,
     snapshot
   );
+
+  await pinVersionNarrative(params.userId, snapshot);
 
   snapshotLog.info(
     `Generated the Snapshot for user ${params.userId} (request ${result.provenance.requestId}, status ${result.provenance.resultStatus}, fallback ${result.provenance.fallbackUsed}).`

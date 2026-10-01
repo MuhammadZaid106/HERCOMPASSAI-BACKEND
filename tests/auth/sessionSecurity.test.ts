@@ -165,8 +165,15 @@ describe("googleAuthSchema", () => {
 });
 
 describe("registerSchema", () => {
-  it("does not allow self-assigning admin or developer", () => {
-    for (const role of ["admin", "developer"]) {
+  it("does not allow self-assigning a role at all", () => {
+    // Every role is rejected now, not just the privileged ones. "member" used to
+    // pass here, which meant the schema treated the caller's `role` as
+    // meaningful and only filtered two values out of it — the caller still had a
+    // say in their own authorization. `partner` was the same class of bug as
+    // `admin`: a partner role belongs to an accepted invitation, not to a signup
+    // form. The controller also rejects these explicitly, so a future schema
+    // loosening here cannot silently re-open the hole.
+    for (const role of ["admin", "developer", "member", "partner"]) {
       const parsed = registerSchema.safeParse({
         name: "Test User",
         email: "test@example.com",
@@ -177,15 +184,29 @@ describe("registerSchema", () => {
     }
   });
 
-  it("accepts the documented member and partner roles", () => {
-    for (const role of ["member", "partner"]) {
+  it("does not allow a caller to pick their own plan", () => {
+    // `/register?plan=premium` is a marketing deep link. Accepting it from the
+    // body meant the URL decided what somebody paid for.
+    for (const plan of ["free", "plus", "premium"]) {
       const parsed = registerSchema.safeParse({
         name: "Test User",
         email: "test@example.com",
         password: "Password1",
-        role,
+        plan,
       });
-      assert.equal(parsed.success, true, `role "${role}" must be accepted`);
+      assert.equal(parsed.success, false, `plan "${plan}" must be rejected`);
+    }
+  });
+
+  it("accepts a registration with no role or plan", () => {
+    const parsed = registerSchema.safeParse({
+      name: "Test User",
+      email: "test@example.com",
+      password: "Password1",
+    });
+    assert.equal(parsed.success, true);
+    if (parsed.success) {
+      assert.deepEqual(Object.keys(parsed.data).sort(), ["email", "name", "password"]);
     }
   });
 });
