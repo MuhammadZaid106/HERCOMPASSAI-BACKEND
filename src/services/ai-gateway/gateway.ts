@@ -56,9 +56,13 @@ import { recordAiAudit } from "./auditService.js";
  *
  * Pipeline (spec Section 8):
  *   authorize -> validate -> consent -> deterministic context -> retrieve evidence
- *   -> select model -> select prompt -> generate -> validate schema
- *   -> verify citations -> attach confidence -> run SCI -> run safety
- *   -> fallback -> audit -> return approved output
+ *   -> select model -> select prompt -> generate -> run output guardrails
+ *   -> validate schema -> verify citations -> attach confidence -> run SCI
+ *   -> run safety -> fallback -> audit -> return approved output
+ *
+ * Guardrails deliberately precede schema validation. They inspect the raw
+ * completion text, and crisis handling must not depend on the payload parsing
+ * first — see the note at the guardrail call site.
  */
 
 const gatewayLog = logger.module("AI-GATEWAY");
@@ -173,6 +177,7 @@ type GatewayOutcome =
 
 type FailureKind =
   | "disabled"
+  | "consent"
   | "no_evidence"
   | "no_provider"
   | "schema"
@@ -193,6 +198,15 @@ function clientMessageFor(kind: FailureKind): { message: string; statusCode: num
   switch (kind) {
     case "disabled":
       return { message: "AI insights are temporarily unavailable. Your data is safe — please try again later.", statusCode: 503 };
+    case "consent":
+      // 403, not 422. A missing consent grant is an authorization question the
+      // member can resolve, not a malformed request and not a transient failure,
+      // and the controller already answers this before spending a model call.
+      return {
+        message:
+          "We need your current consent before generating personalised insights. Your answers are saved — please review your privacy settings.",
+        statusCode: 403,
+      };
     case "no_evidence":
       return {
         message:
@@ -474,16 +488,22 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
   const preFlight = runPreGenerationGuardrails(context);
   if (!preFlight.allowed) {
     gatewayLog.warn(
-      `Pre-generation guardrails blocked request ${requestId}: ${preFlight.findings
+      `Pre-generation guardrails blocked request ${requestId} (${preFlight.reason}): ${preFlight.findings
         .filter((finding) => finding.severity === "block")
         .map((finding) => finding.message)
         .join(" | ")}`
     );
-    const needsEvidence = preFlight.findings.some(
-      (finding) => finding.message.includes("No approved evidence")
-    );
-    const needsConsent = preFlight.findings.some((finding) => finding.message.includes("consent"));
-    return fail(needsConsent ? "sci_blocked" : needsEvidence ? "no_evidence" : "sci_blocked", preFlight.findings);
+    // The reason is decided by the guardrails and mapped to a client message
+    // here. Searching the finding text for a keyword was previously how this
+    // branch decided what to tell a member, which meant rewording a log message
+    // silently changed an HTTP status code.
+    const kind: FailureKind =
+      preFlight.reason === "consent_missing"
+        ? "consent"
+        : preFlight.reason === "no_evidence"
+          ? "no_evidence"
+          : "sci_blocked";
+    return fail(kind, preFlight.findings);
   }
 
   const policy = getFeaturePolicy(invocation.feature);
@@ -685,7 +705,52 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
     );
   }
 
-  // ─── Step 12: schema validation ────────────────────────────────────────────
+  // ─── Step 12: output guardrails, before the payload is trusted ──────────────
+  /**
+   * Guardrails run on the raw completion text, ahead of schema validation.
+   *
+   * Order matters for crisis handling specifically. A model that discloses crisis
+   * content in a payload it also failed to encode correctly — truncation, a
+   * commentary preamble, an unterminated object — previously lost the crisis
+   * notice entirely: schema validation returned the deterministic fallback first,
+   * so the guardrails never saw the text. The member received a neutral list of
+   * their own verified numbers while the disclosure that triggered the crisis
+   * path went unread. Safety inspection must not depend on the payload parsing.
+   */
+  const guardrailResult = runOutputGuardrails(generation.content, context);
+
+  if (guardrailResult.crisisDetected) {
+    const crisisFindings: SciFinding[] = [
+      {
+        check: "unsafe_content",
+        severity: "block",
+        message: "Response disclosed crisis content and was withheld.",
+      },
+    ];
+
+    const assessment = assessSafety(crisisFindings, { crisisDetected: true });
+    gatewayLog.warn(`Withheld a response for request ${requestId}: crisis content detected.`);
+
+    return failWith(
+      422,
+      assessment.crisisNotice ??
+        "It sounds like things are really hard right now. Please reach out to someone you trust or a local crisis helpline today.",
+      crisisFindings
+    );
+  }
+
+  if (guardrailResult.blocked) {
+    // A safety violation must never reach the member, but it also must not read as
+    // a system error: the deterministic fallback is safe, grounded, and useful.
+    return serveFallback(
+      guardrailResult.findings.filter((finding) => finding.severity === "block"),
+      buildContextCitations(context),
+      [],
+      "guardrail_blocked"
+    );
+  }
+
+  // ─── Step 13: schema validation ────────────────────────────────────────────
   let repaired;
   try {
     const rawPayload = extractJsonObject(generation.content, generation.provider);
@@ -720,40 +785,6 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
     );
   }
 
-  // ─── Steps 13 + guardrails: claim verification and language safety ──────────
-  const guardrailResult = runOutputGuardrails(generation.content, context);
-
-  if (guardrailResult.crisisDetected) {
-    const crisisFindings: SciFinding[] = [
-      {
-        check: "unsafe_content",
-        severity: "block",
-        message: "Response disclosed crisis content and was withheld.",
-      },
-    ];
-
-    const assessment = assessSafety(crisisFindings, { crisisDetected: true });
-    gatewayLog.warn(`Withheld a response for request ${requestId}: crisis content detected.`);
-
-    return failWith(
-      422,
-      assessment.crisisNotice ??
-        "It sounds like things are really hard right now. Please reach out to someone you trust or a local crisis helpline today.",
-      crisisFindings
-    );
-  }
-
-  if (guardrailResult.blocked) {
-    // A safety violation must never reach the member, but it also must not read as
-    // a system error: the deterministic fallback is safe, grounded, and useful.
-    return serveFallback(
-      guardrailResult.findings.filter((finding) => finding.severity === "block"),
-      buildContextCitations(context),
-      [],
-      "guardrail_blocked"
-    );
-  }
-
   const verification = verifyAndRepair(repaired, context);
   draft.citations = verification.usedCitationIds;
 
@@ -777,8 +808,8 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
     guardrailFindings: guardrailResult.findings,
     verification,
     minCitations: plan.minCitations,
-    confidencePresent: confidence !== null,
-    safetyNoticePresent: AI_GATEWAY_CONFIG.safetyNotice.trim().length > 0,
+    confidence,
+    safetyNotice: AI_GATEWAY_CONFIG.safetyNotice,
   });
 
   const safety = assessSafety(sci.findings, { crisisDetected: false });

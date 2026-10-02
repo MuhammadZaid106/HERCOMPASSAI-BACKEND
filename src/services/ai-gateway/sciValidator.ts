@@ -1,6 +1,10 @@
 import { AI_GATEWAY_CONFIG } from "../../config/aiGateway.js";
 import { logger } from "../../utils/logger.js";
-import type { GatewaySafetyStatus, SciFinding } from "../../ai/types/index.js";
+import type {
+  GatewayConfidence,
+  GatewaySafetyStatus,
+  SciFinding,
+} from "../../ai/types/index.js";
 import type {
   PartnerDigestModelOutput,
   PersonalSnapshotModelOutput,
@@ -30,8 +34,17 @@ export interface SciInput {
   guardrailFindings: SciFinding[];
   verification: VerificationResult;
   minCitations: number;
-  confidencePresent: boolean;
-  safetyNoticePresent: boolean;
+  /**
+   * The deterministic confidence the Gateway intends to attach.
+   *
+   * The confidence object itself, not a pre-resolved boolean. The Gateway used to
+   * pass `confidence !== null`, but `calculateConfidence` has no path that returns
+   * null, so the check could never fail and a regression that dropped confidence
+   * from the approved output entirely would have passed SCI unnoticed.
+   */
+  confidence: GatewayConfidence | null;
+  /** The safety notice the Gateway intends to attach, for the same reason. */
+  safetyNotice: string;
 }
 
 export interface SciResult {
@@ -189,7 +202,11 @@ export function runSci(input: SciInput): SciResult {
     });
   }
 
-  if (!input.confidencePresent) {
+  if (
+    input.confidence === null ||
+    typeof input.confidence.confidenceScore !== "number" ||
+    !Number.isFinite(input.confidence.confidenceScore)
+  ) {
     findings.push({
       check: "confidence_present",
       severity: "block",
@@ -197,7 +214,7 @@ export function runSci(input: SciInput): SciResult {
     });
   }
 
-  if (!input.safetyNoticePresent) {
+  if (input.safetyNotice.trim().length === 0) {
     findings.push({
       check: "safety_language",
       severity: "block",

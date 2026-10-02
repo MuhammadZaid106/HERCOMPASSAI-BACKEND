@@ -14,6 +14,7 @@ import {
   recordAiFeedback,
   describeRouting,
   partnerSupportIsRelevant,
+  clinicianReviewSummary,
 } from "../../services/ai-gateway/index.js";
 import { aiGenerateSchema, aiFeedbackSchema } from "./aiGatewaySchemas.js";
 import type { ConsentScope, GatewayFeature } from "../../ai/types/index.js";
@@ -293,6 +294,16 @@ export async function getAiHealth(
     }
 
     const providers = await getProviderHealth();
+    const evidenceReview = clinicianReviewSummary();
+
+    // The catalog is citable while unsigned, so the gap is reported here rather
+    // than left to be remembered: "approved" and "clinician-reviewed" are
+    // different claims and only the first one is currently true.
+    if (!evidenceReview.fullyClinicianReviewed) {
+      aiLog.warn(
+        `Clinical Knowledge Folder: ${evidenceReview.pendingClinicianReview}/${evidenceReview.citable} citable records await a named clinician sign-off. The catalog must not be described as clinician-approved.`
+      );
+    }
 
     sendSuccess(res, 200, "AI Gateway health retrieved", {
       enabled: AI_GATEWAY_CONFIG.enabled,
@@ -300,6 +311,7 @@ export async function getAiHealth(
       providers,
       routing: describeRouting(),
       prompts: listPromptBundles(),
+      evidenceReview,
       confidence: {
         weights: AI_GATEWAY_CONFIG.confidence.weights,
         thresholds: AI_GATEWAY_CONFIG.confidence.thresholds,

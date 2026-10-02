@@ -1,10 +1,13 @@
 import { AI_GATEWAY_CONFIG } from "../../config/aiGateway.js";
+import {
+  buildApprovedPatternBlock,
+  finiteScore,
+} from "./approvedPhrases.js";
 import type {
   GatewayCitation,
   GatewayContext,
   GatewayConfidence,
   GatewayNextStep,
-  GatewayPatternBlock,
   GatewayRecommendation,
   GatewayTrendSignals,
   PartnerDigestOutput,
@@ -71,31 +74,7 @@ const DEFAULT_TEMPLATE: ActionTemplate = {
 };
 
 function asNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function band(score: number | null): string {
-  if (score === null) return "has not been calculated yet";
-  if (score >= 70) return "is one of the areas your responses most highlighted";
-  if (score >= 40) return "is an area you may want to explore";
-  return "is currently among the steadier areas in your responses";
-}
-
-function patternBlock(
-  label: string,
-  score: number | null,
-  reportedAreas: string[]
-): GatewayPatternBlock {
-  const areas =
-    reportedAreas.length > 0
-      ? ` You reported: ${reportedAreas.slice(0, 5).join(", ")}.`
-      : "";
-
-  return {
-    summary: `Based on what you shared, ${label} ${band(score)}.${areas} This is an observation, not a diagnosis.`,
-    reportedAreas: reportedAreas.slice(0, 8),
-    impact: null,
-  };
+  return finiteScore(value);
 }
 
 function templateFor(topicAreas: string[]): ActionTemplate {
@@ -199,10 +178,10 @@ export function buildSnapshotFallback(
 
   return {
     snapshotVersion: AI_GATEWAY_CONFIG.versions.config,
-    symptomPattern: patternBlock("your symptom pattern", asNumber(context.deterministic.metrics.symptomBurdenScore), reported),
-    moodPattern: patternBlock("your emotional wellbeing", asNumber(context.deterministic.metrics.emotionalBalanceScore), []),
-    sleepPattern: patternBlock("your sleep experience", asNumber(context.deterministic.metrics.sleepDisturbanceScore), []),
-    energyPattern: patternBlock("your energy levels", asNumber(context.deterministic.metrics.vitalityIndex), []),
+    symptomPattern: buildApprovedPatternBlock("your symptom pattern", asNumber(context.deterministic.metrics.symptomBurdenScore), reported),
+    moodPattern: buildApprovedPatternBlock("your emotional wellbeing", asNumber(context.deterministic.metrics.emotionalBalanceScore), []),
+    sleepPattern: buildApprovedPatternBlock("your sleep experience", asNumber(context.deterministic.metrics.sleepDisturbanceScore), []),
+    energyPattern: buildApprovedPatternBlock("your energy levels", asNumber(context.deterministic.metrics.vitalityIndex), []),
     lifestyleObservations: [focusAreaSentence(context), ...trendObservations(context)],
     personalizedRecommendations: recommendations,
     suggestedNextSteps: nextSteps,

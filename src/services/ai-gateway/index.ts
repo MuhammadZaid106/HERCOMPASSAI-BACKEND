@@ -13,8 +13,8 @@ export type { RoutePlan, RouteAttempt } from "./modelRouter.js";
 export { assemblePrompt } from "./promptService.js";
 export type { AssembledPrompt } from "./promptService.js";
 
-export { retrieveEvidence, listApprovedEvidence, tokenize } from "./evidenceService.js";
-export type { EvidenceRetrievalResult, EvidenceQuery } from "./evidenceService.js";
+export { retrieveEvidence, listApprovedEvidence, tokenize, clinicianReviewSummary } from "./evidenceService.js";
+export type { EvidenceRetrievalResult, EvidenceQuery, ClinicianReviewSummary } from "./evidenceService.js";
 
 export { verifyAndRepair } from "./citationVerifier.js";
 export type { VerificationResult } from "./citationVerifier.js";
