@@ -82,6 +82,6 @@ EntitlementUsage.init(
     timestamps: true,
     updatedAt: true,
     underscored: true,
-    indexes: [{ unique: true, fields: ["userId"] }],
+    indexes: [{ unique: true, fields: ["user_id"] }],
   }
 );
