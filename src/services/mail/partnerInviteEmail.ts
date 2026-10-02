@@ -6,13 +6,17 @@ const SCOPE_LABELS: Record<string, string> = {
   communication_guidance: "communication guidance",
 };
 
+export function buildPartnerInviteUrl(base: string, rawToken: string): string {
+  return `${base.replace(/\/$/, "")}/partner/invite?token=${encodeURIComponent(rawToken)}`;
+}
+
 export function partnerInviteEmail(rawToken: string, scopes: string[]): {
   subject: string;
   text: string;
   html: string;
 } {
   const shared = scopes.map((scope) => SCOPE_LABELS[scope] ?? scope).join(", ");
-  const actionUrl = `${appBaseUrl()}/partner/invite?token=${encodeURIComponent(rawToken)}`;
+  const actionUrl = buildPartnerInviteUrl(appBaseUrl(), rawToken);
   const body = renderNoticeEmail({
     heading: "Join your partner on HerCompassAI",
     paragraphs: [

@@ -21,6 +21,7 @@ import { PasswordResetToken } from "./PasswordResetToken.js";
 import { PartnerInvite } from "./PartnerInvite.js";
 import { SavedContent } from "./SavedContent.js";
 import { EntitlementUsage } from "./EntitlementUsage.js";
+import { CommunityNote } from "./CommunityNote.js";
 
 // Setup Model Associations
 User.hasMany(RefreshToken, {
@@ -135,6 +136,10 @@ SavedContent.belongsTo(User, { foreignKey: "userId", as: "user" });
 User.hasMany(EntitlementUsage, { foreignKey: "userId", as: "entitlementUsage", onDelete: "CASCADE" });
 EntitlementUsage.belongsTo(User, { foreignKey: "userId", as: "user" });
 
+User.hasMany(CommunityNote, { foreignKey: "userId", as: "communityNotes", onDelete: "CASCADE" });
+CommunityNote.belongsTo(User, { foreignKey: "userId", as: "author" });
+CommunityNote.belongsTo(User, { foreignKey: "reviewedBy", as: "reviewer" });
+
 export {
   sequelize,
   connectDB,
@@ -160,4 +165,5 @@ export {
   PartnerInvite,
   SavedContent,
   EntitlementUsage,
+  CommunityNote,
 };

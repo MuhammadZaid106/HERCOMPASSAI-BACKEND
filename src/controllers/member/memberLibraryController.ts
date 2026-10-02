@@ -12,7 +12,7 @@ import { sendError, sendSuccess } from "../../utils/apiResponse.js";
 import { logger } from "../../utils/logger.js";
 import { filterByPreferences } from "../../services/notifications/notificationPolicy.js";
 import { loadPreferences, notifyMember } from "../../services/notifications/notificationService.js";
-import { syncPartnerInvite } from "../../services/partner/partnerInviteService.js";
+import { connectedPartnerFor, issuePartnerInviteLink, revokeConnectedPartner, syncPartnerInvite } from "../../services/partner/partnerInviteService.js";
 
 const libraryLog = logger.module("MEMBER-LIBRARY");
 
@@ -66,10 +66,16 @@ const supportSchema = z.object({
   message: z.string().trim().min(8).max(2000),
 });
 
+/** Older Snapshots stored this name for the same general-support topic. */
+function normalizePartnerScopes(scopes: string[]): Array<(typeof SHARE_SCOPES)[number]> {
+  const mapped = scopes.map((scope) => (scope === "digest_summary" ? "general_support" : scope));
+  return SHARE_SCOPES.filter((scope) => mapped.includes(scope));
+}
+
 const partnerSchema = z.object({
   partnerEmail: z.union([z.literal(""), z.string().trim().email()]).optional(),
   partnerConsent: z.boolean(),
-  scopes: z.array(z.enum(SHARE_SCOPES)).max(3),
+  scopes: z.array(z.string()).transform(normalizePartnerScopes),
 });
 
 const deleteSchema = z.object({
@@ -301,8 +307,14 @@ export async function updatePartnerSettings(
     // Captured before the write so the notice only fires on a real change, not
     // every time the same settings are saved again.
     const wasSharing = Boolean(profile.partnerConsent);
+    const submittedEmail = parsed.data.partnerEmail?.trim() ?? "";
+    const partnerEmail = submittedEmail || profile.partnerEmail || null;
+    const emailChanged =
+      Boolean(submittedEmail) &&
+      submittedEmail.toLowerCase() !== (profile.partnerEmail ?? "").toLowerCase();
+    const turnedOn = !wasSharing && parsed.data.partnerConsent;
     await profile.update({
-      partnerEmail: parsed.data.partnerEmail?.trim() || null,
+      partnerEmail: parsed.data.partnerConsent ? partnerEmail : profile.partnerEmail,
       partnerConsent: parsed.data.partnerConsent,
       partnerSharingScopes: parsed.data.partnerConsent ? [...parsed.data.scopes] : [],
     });
@@ -311,6 +323,8 @@ export async function updatePartnerSettings(
       partnerEmail: profile.partnerEmail,
       consent: profile.partnerConsent,
       scopes: profile.partnerSharingScopes ?? [],
+      rotate: Boolean(profile.partnerConsent) && (emailChanged || turnedOn),
+      sendEmail: emailChanged || turnedOn,
     });
     libraryLog.info(`[${new Date().toISOString()}] partner settings updated for ${userId}`);
     if (wasSharing !== Boolean(profile.partnerConsent)) {
@@ -329,7 +343,57 @@ export async function updatePartnerSettings(
       scopes: profile.partnerSharingScopes ?? [],
       emailOnFile: Boolean(profile.partnerEmail?.trim()),
       inviteSent: invite.inviteSent,
+      inviteUrl: invite.inviteUrl,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createPartnerInviteLink(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = memberId(req, res);
+    if (!userId) return;
+    const issued = await issuePartnerInviteLink(userId);
+    if (!issued.ok) {
+      sendError(res, issued.status, issued.message);
+      return;
+    }
+    sendSuccess(res, 200, "Invitation link ready", { inviteUrl: issued.inviteUrl });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getPartnerConnection(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = memberId(req, res);
+    if (!userId) return;
+    const partner = await connectedPartnerFor(userId);
+    sendSuccess(res, 200, partner ? "Partner connected" : "No partner connected", { partner });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function revokePartnerConnection(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = memberId(req, res);
+    if (!userId) return;
+    await revokeConnectedPartner(userId);
+    sendSuccess(res, 200, "Partner access revoked", { partner: null });
   } catch (error) {
     next(error);
   }

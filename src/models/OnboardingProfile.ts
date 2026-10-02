@@ -360,7 +360,7 @@ OnboardingProfile.init(
     partnerSharingScopes: {
       type: DataTypes.JSONB,
       allowNull: false,
-      defaultValue: ["digest_summary", "communication_guidance", "shared_activities"],
+      defaultValue: ["general_support", "communication_guidance", "shared_activities"],
     },
     deterministicScores: {
       type: DataTypes.JSONB,

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { requireStaff } from "../../middleware/roleMiddleware.js";
 import { listAiFlags, updateAiFlag, getMemberAiUsage } from "../../controllers/admin/adminController.js";
+import { listCommunityNotes, reviewCommunityNote } from "../../controllers/admin/communityReviewController.js";
 
 const router: Router = Router();
 
@@ -20,5 +21,8 @@ router.patch("/ai-flags/:id", updateAiFlag);
 
 /** Per-member AI allowance, for support. */
 router.get("/ai-usage/:userId", getMemberAiUsage);
+
+router.get("/community-notes", listCommunityNotes);
+router.patch("/community-notes/:id", reviewCommunityNote);
 
 export default router;

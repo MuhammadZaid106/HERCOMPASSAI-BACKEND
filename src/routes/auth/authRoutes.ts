@@ -12,7 +12,7 @@ import {
   forgotPasswordController,
   resetPasswordController,
 } from "../../controllers/auth/authController.js";
-import { authRateLimiter } from "../../middleware/rateLimiter.js";
+import { authRateLimiter, sessionRateLimiter } from "../../middleware/rateLimiter.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 
 const router: IRouter = Router();
@@ -40,13 +40,13 @@ router.post("/google", authRateLimiter, googleAuthController);
  * POST /api/auth/refresh
  * Rotates the token pair. Reuse detection revokes the token family.
  */
-router.post("/refresh", authRateLimiter, refreshController);
+router.post("/refresh", sessionRateLimiter, refreshController);
 
 /**
  * POST /api/auth/logout
  * Revokes the provided refresh token
  */
-router.post("/logout", authRateLimiter, logoutController);
+router.post("/logout", sessionRateLimiter, logoutController);
 
 /**
  * GET /api/auth/me
