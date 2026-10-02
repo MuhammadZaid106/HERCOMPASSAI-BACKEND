@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS personal_snapshots (
 
   result_status VARCHAR(24) NOT NULL,
   confidence VARCHAR(16),
-  confidence_score INTEGER,
+  confidence_score DOUBLE PRECISION,
   safety_status VARCHAR(24) NOT NULL DEFAULT 'approved',
 
   prompt_version VARCHAR(20) NOT NULL DEFAULT 'unset',
