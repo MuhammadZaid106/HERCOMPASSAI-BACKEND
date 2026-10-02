@@ -214,14 +214,15 @@ reconstructed. `AI_GATEWAY_CI_VERSION` is a legacy alias for the SCI version, re
 only when `AI_GATEWAY_SCI_VERSION` is unset.
 
 There is no offline engine. Routing resolves against the three registered
-providers (`med42`, `llama`, `openai_compatible`); an unconfigured provider is
+providers (`med42`, `llama`, `gemini`); an unconfigured provider is
 skipped at request time. If every configured engine fails, the deterministic
 fallback above is served.
 
 ### Llama and Med42 on Hugging Face
 
-Both engines use the shared OpenAI-compatible transport, so pointing them at the
-Hugging Face Inference API is configuration only — no code change:
+Both engines use the shared OpenAI-compatible transport (`httpChatProvider.ts`),
+so pointing them at the Hugging Face Inference API is configuration only — no
+code change:
 
 ```env
 LLAMA_PROVIDER_URL=https://router.huggingface.co
@@ -271,6 +272,58 @@ Pin `*_MODEL_VERSION` to a specific commit so a changed upstream model cannot
 silently alter past AI decisions that are meant to be reproducible in the audit
 trail. Changing `*_MODEL` without changing the pin leaves the audit trail claiming
 a version the current model does not have, so update both together.
+
+### Google Gemini
+
+Gemini is registered as a third engine and is reached over Google's **native**
+`generateContent` API rather than its OpenAI-compatible surface
+(`gemini.provider.ts`). The native API is used on purpose: `systemInstruction` is
+a distinct field there instead of a `system` message that some backends silently
+discard, and a dropped system prompt is a safety-prompt failure that looks like a
+compliance failure.
+
+```env
+GEMINI_PROVIDER_URL=https://generativelanguage.googleapis.com/v1beta
+GEMINI_PROVIDER_KEY=<your Google AI Studio key>
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL_VERSION=<published snapshot date>
+```
+
+Get the key from `https://aistudio.google.com/apikey`. It is sent as the
+`x-goog-api-key` header, never in the query string, and is redacted
+(`AIza…`) out of any provider text before it is logged or returned.
+
+Four things that catch people out:
+
+- **`GEMINI_PROVIDER_URL` is not the Llama/Med42 URL shape.** Those two append
+  `/v1/chat/completions` to a bare host; Gemini appends
+  `/models/<GEMINI_MODEL>:generateContent` to a root that **already** contains the
+  version segment. A URL ending in `/v1beta/openai` or `/v1/chat/completions` will
+  not resolve.
+- **`GEMINI_MODEL` has no `models/` prefix.** `gemini-2.5-flash`, not
+  `models/gemini-2.5-flash`. A `models/` prefix is stripped if present, but an
+  unknown id answers 404 `NOT_FOUND`, which the health probe reports as `degraded`
+  alongside Google's own explanation.
+- **A refusal arrives as an empty answer, not an error.** Gemini blocks in two
+  shapes — `promptFeedback.blockReason` before generation, `finishReason` during
+  it — and both surface as an absent `candidates` array. The adapter names the
+  block reason instead of reporting "returned an empty completion", which would
+  send an operator hunting a transport fault for a model that simply declined.
+  These failures are non-retryable: the same prompt is refused identically.
+- **A `SAFETY` finish reason must not be reported as `stop`.** The Gateway treats
+  a `stop` finish as a clean generation when computing confidence, so collapsing
+  the safety family into `stop` would hand it a complete Snapshot with nothing in
+  it. `SAFETY`, `RECITATION`, `BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII` and
+  `LANGUAGE` all map to `content_filter`.
+
+Confirm a model id works before trusting a health check:
+
+```bash
+curl -sS "https://generativelanguage.googleapis.com/v1beta/models/$GEMINI_MODEL:generateContent" \
+  -H "x-goog-api-key: $GEMINI_PROVIDER_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"contents":[{"role":"user","parts":[{"text":"ping"}]}],"generationConfig":{"maxOutputTokens":1}}'
+```
 
 ### Choosing a model on the shared router
 

@@ -1,5 +1,6 @@
 import { isCitableRecord } from "./evidenceService.js";
 import { buildApprovedPatternBlock, finiteScore } from "./approvedPhrases.js";
+import { recommendationsFromEvidence } from "./fallbackService.js";
 import { NUMERIC_TOKEN_PATTERN } from "../../ai/guardrails/languagePatterns.js";
 import { collectPermittedNumbers } from "../../ai/guardrails/guardrailService.js";
 import { AI_GATEWAY_CONFIG } from "../../config/aiGateway.js";
@@ -22,6 +23,7 @@ import type {
  *   AI claim -> citation id -> Citation Registry -> evidence source -> verify
  *
  * When a claim cannot be supported the spec allows three responses: remove the
+<<<<<<< HEAD
  * claim, rewrite it, or block the response. We implement removal here (deterministic
  * and auditable); blocking happens in SCI if nothing survives.
  *
@@ -31,6 +33,12 @@ import type {
  * summaries plus the next steps are the sections a member reads first, so a
  * verifier that only swept the recommendation list left the largest surfaces of
  * the Snapshot unchecked while appearing to enforce grounding.
+=======
+ * claim, rewrite it, or block the response. A recommendation with no retrieved
+ * citation id is removed. If that empties the list and this request did retrieve
+ * evidence, the list is rewritten from those cards. SCI still blocks when nothing
+ * citable remains.
+>>>>>>> origin/feature/for-main
  */
 
 export interface VerificationResult {
@@ -80,11 +88,11 @@ const PATTERN_FIELDS: ReadonlyArray<{
   label: string;
   scoreKey: string;
 }> = [
-  { key: "symptomPattern", label: "your symptom pattern", scoreKey: "symptomBurdenScore" },
-  { key: "moodPattern", label: "your emotional wellbeing", scoreKey: "emotionalBalanceScore" },
-  { key: "sleepPattern", label: "your sleep experience", scoreKey: "sleepDisturbanceScore" },
-  { key: "energyPattern", label: "your energy levels", scoreKey: "vitalityIndex" },
-];
+    { key: "symptomPattern", label: "your symptom pattern", scoreKey: "symptomBurdenScore" },
+    { key: "moodPattern", label: "your emotional wellbeing", scoreKey: "emotionalBalanceScore" },
+    { key: "sleepPattern", label: "your sleep experience", scoreKey: "sleepDisturbanceScore" },
+    { key: "energyPattern", label: "your energy levels", scoreKey: "vitalityIndex" },
+  ];
 
 /**
  * Every model-authored string in a pattern block, not just the summary.
@@ -158,13 +166,36 @@ export function verifyAndRepair(
 
   const allowed = new Map(context.evidence.map((item) => [item.record.citationId, item]));
 
+  const canonicalCitationId = (id: string): string | null => {
+    const trimmed = id.trim();
+    if (trimmed.length === 0) return null;
+
+    const direct = allowed.get(trimmed);
+    if (direct && direct.record.status === "approved" && isCitableRecord(direct.record)) {
+      return direct.record.citationId;
+    }
+
+    const folded = trimmed.toLowerCase();
+    for (const item of allowed.values()) {
+      if (
+        item.record.citationId.toLowerCase() === folded &&
+        item.record.status === "approved" &&
+        isCitableRecord(item.record)
+      ) {
+        return item.record.citationId;
+      }
+    }
+
+    return null;
+  };
+
   const resolveCitations = (ids: string[]): { valid: string[]; invalid: string[] } => {
     const valid: string[] = [];
     const invalid: string[] = [];
     for (const id of ids) {
-      const match = allowed.get(id);
-      if (match && match.record.status === "approved" && isCitableRecord(match.record)) valid.push(id);
-      else invalid.push(id);
+      const canonical = canonicalCitationId(id);
+      if (canonical && !valid.includes(canonical)) valid.push(canonical);
+      else if (!canonical) invalid.push(id);
     }
     return { valid, invalid };
   };
@@ -215,6 +246,20 @@ export function verifyAndRepair(
         category: recommendation.category,
         citationIds: valid,
       });
+    }
+
+    if (kept.length === 0) {
+      const filled = recommendationsFromEvidence(context);
+      if (filled.length > 0) {
+        kept.push(...filled);
+        findings.push({
+          check: "evidence_support",
+          severity: "warn",
+          message:
+            "Replaced recommendations that had no verifiable citation with lines drawn from the sources retrieved for this request.",
+          path: "personalizedRecommendations",
+        });
+      }
     }
 
     let partnerSupport = payload.partnerSupportOpportunity;

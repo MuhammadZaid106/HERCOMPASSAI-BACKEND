@@ -21,6 +21,9 @@ import {
   updateMemberProfile,
   updateNotificationPreferences,
   updatePartnerSettings,
+  createPartnerInviteLink,
+  getPartnerConnection,
+  revokePartnerConnection,
 } from "../../controllers/member/memberLibraryController.js";
 import {
   getRecipe,
@@ -30,6 +33,8 @@ import {
   saveRecipe,
   saveWorkout,
 } from "../../controllers/member/contentLibraryController.js";
+import { getMeditation, listMeditations, saveMeditation } from "../../controllers/member/meditationController.js";
+import { createCommunityNote, listCommunity } from "../../controllers/member/communityController.js";
 
 const router: IRouter = Router();
 router.use(requireAuth);
@@ -52,11 +57,19 @@ router.get("/explore-progress", getExploreProgress);
 router.put("/explore-progress/:slug", updateExploreProgress);
 router.post("/support", createSupportRequest);
 router.put("/partner", updatePartnerSettings);
+router.get("/partner/connection", getPartnerConnection);
+router.post("/partner/revoke", revokePartnerConnection);
+router.post("/partner/invite-link", createPartnerInviteLink);
 router.get("/recipes", listRecipes);
 router.get("/recipes/:slug", getRecipe);
 router.put("/recipes/:slug", saveRecipe);
 router.get("/workouts", listWorkouts);
 router.get("/workouts/:slug", getWorkout);
 router.put("/workouts/:slug", saveWorkout);
+router.get("/meditation", listMeditations);
+router.get("/meditation/:slug", getMeditation);
+router.put("/meditation/:slug", saveMeditation);
+router.get("/community", listCommunity);
+router.post("/community/notes", createCommunityNote);
 
 export default router;

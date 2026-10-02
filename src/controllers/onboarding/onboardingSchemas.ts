@@ -140,7 +140,7 @@ export const onboardingPayloadSchema = z.object({
     .optional(),
   partnerConsent: z.boolean().optional().default(false),
   partnerSharingScopes: z.array(z.string()).optional().default([
-    "digest_summary",
+    "general_support",
     "communication_guidance",
     "shared_activities",
   ]),

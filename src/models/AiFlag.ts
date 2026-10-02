@@ -54,7 +54,7 @@ AiFlag.init(
     requestId: {
       type: DataTypes.UUID,
       allowNull: false,
-      references: { model: "ai_audit_logs", key: "requestId" },
+      references: { model: "ai_audit_logs", key: "request_id" },
       onDelete: "CASCADE",
     },
     userId: {
@@ -100,8 +100,8 @@ AiFlag.init(
     updatedAt: false,
     underscored: true,
     indexes: [
-      { fields: ["reviewStatus", "severity"] },
-      { fields: ["requestId"] },
+      { fields: ["review_status", "severity"] },
+      { fields: ["request_id"] },
     ],
   }
 );

@@ -15,7 +15,7 @@ export class SavedContent extends Model<
 > {
   declare id: CreationOptional<string>;
   declare userId: ForeignKey<User["id"]>;
-  declare kind: "recipe" | "workout";
+  declare kind: "recipe" | "workout" | "meditation";
   declare slug: string;
   declare saved: CreationOptional<boolean>;
   declare onPlan: CreationOptional<boolean>;

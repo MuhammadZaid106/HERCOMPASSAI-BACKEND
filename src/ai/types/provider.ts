@@ -11,7 +11,7 @@
  * Intelligence Stack™. The Gateway is the architectural control point.
  */
 
-export type ModelProviderName = "llama" | "med42" | "openai_compatible";
+export type ModelProviderName = "llama" | "med42" | "gemini";
 
 /** Task taxonomy used by the router to select an engine. */
 export type AITaskType =
@@ -169,6 +169,8 @@ export function redactProviderText(value: string, maxLength = 300): string {
     .replace(/((?:api[_-]?key|authorization|token|secret|password)["'\s]*[:=]\s*["']?)[^\s"',}]+/gi, "$1[redacted]")
     // Hugging Face user/org access tokens.
     .replace(/\bhf_[A-Za-z0-9]{8,}/g, "hf_[redacted]")
+    // Google API keys, which Gemini is authenticated with.
+    .replace(/\bAIza[A-Za-z0-9_-]{10,}/g, "AIza[redacted]")
     // Anything that looks like a JWT.
     .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "[redacted-jwt]")
     .replace(/\s+/g, " ")

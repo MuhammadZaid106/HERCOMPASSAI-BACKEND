@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import "../setupEnv.js";
 import { partnerHomeAllowed, presentPartnerHome } from "../../src/services/partner/partnerHome.js";
+import { buildPartnerInviteUrl } from "../../src/services/mail/partnerInviteEmail.js";
 
 describe("partner home", () => {
   it("refuses a member", () => {
@@ -66,5 +67,11 @@ describe("partner home", () => {
     if (home.connected) return;
     assert.equal(home.access, "off");
     assert.equal("memberFirstName" in home, false);
+  });
+
+  it("builds an invitation link without health details", () => {
+    const url = buildPartnerInviteUrl("http://localhost:3000", "abc123");
+    assert.equal(url, "http://localhost:3000/partner/invite?token=abc123");
+    assert.equal(url.includes("symptom"), false);
   });
 });

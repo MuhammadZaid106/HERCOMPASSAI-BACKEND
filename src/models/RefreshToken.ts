@@ -90,6 +90,8 @@ RefreshToken.init(
     tableName: "refresh_tokens",
     timestamps: true,
     underscored: true,
-    indexes: [{ fields: ["userId", "familyId"] }, { fields: ["expiresAt"] }],
+    // Indexes live in migrations/001_refresh_token_reuse_detection.sql.
+    // Declaring them here makes sync emit camelCase column names ("userId",
+    // "familyId") and Postgres rejects the statement with 42703 on every boot.
   }
 );

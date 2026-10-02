@@ -49,21 +49,20 @@ describe("AI audit schema", () => {
     }
   });
 
-  it("makes ai_audit_logs.requestId a unique foreign-key target", () => {
-    // Declared in the model options rather than read back from the database, so
-    // the assertion works without a connection.
+  it("makes ai_audit_logs.request_id a unique foreign-key target", () => {
+    // The index names the database column request_id.
     const options = AiAuditLog.options as unknown as {
       indexes?: Array<{ fields: string[] | string; unique?: boolean }>;
     };
     const indexes = options.indexes ?? [];
 
     const uniqueOnRequestId = indexes.some(
-      (index) => index.unique === true && [index.fields].flat().includes("requestId")
+      (index) => index.unique === true && [index.fields].flat().includes("request_id")
     );
 
     assert.ok(
       uniqueOnRequestId,
-      "ai_flags.requestId references ai_audit_logs.requestId, which must be unique"
+      "ai_flags.request_id references ai_audit_logs.request_id, which must be unique"
     );
   });
 
@@ -83,7 +82,7 @@ describe("AI audit schema", () => {
     const requestId = attribute(AiFlag, "requestId");
 
     assert.equal(requestId.references?.model, "ai_audit_logs");
-    assert.equal(requestId.references?.key, "requestId");
+    assert.equal(requestId.references?.key, "request_id");
     assert.equal(requestId.onDelete, "CASCADE");
   });
 

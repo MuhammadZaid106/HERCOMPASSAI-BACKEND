@@ -1,4 +1,4 @@
-﻿import { env } from "./env.js";
+import { env } from "./env.js";
 import type {
   AITaskType,
   EvidenceStatus,
@@ -50,7 +50,7 @@ const ROUTING: ModelRouteRule[] = [
     feature: "personal_snapshot",
     taskType: "structured_generation",
     primary: "med42",
-    fallbackChain: ["llama", "openai_compatible"],
+    fallbackChain: ["llama", "gemini"],
     temperature: 0.3,
     maxOutputTokens: 1600,
     minCitations: 1,
@@ -59,7 +59,7 @@ const ROUTING: ModelRouteRule[] = [
     feature: "partner_digest",
     taskType: "structured_generation",
     primary: "llama",
-    fallbackChain: ["med42", "openai_compatible"],
+    fallbackChain: ["med42", "gemini"],
     temperature: 0.4,
     maxOutputTokens: 1200,
     minCitations: 1,
@@ -68,7 +68,7 @@ const ROUTING: ModelRouteRule[] = [
     feature: "ai_insight",
     taskType: "interpretation",
     primary: "llama",
-    fallbackChain: ["med42", "openai_compatible"],
+    fallbackChain: ["med42", "gemini"],
     temperature: 0.3,
     maxOutputTokens: 900,
     minCitations: 1,
@@ -77,7 +77,7 @@ const ROUTING: ModelRouteRule[] = [
     feature: "ai_insight",
     taskType: "classification",
     primary: "llama",
-    fallbackChain: ["med42", "openai_compatible"],
+    fallbackChain: ["med42", "gemini"],
     temperature: 0.1,
     maxOutputTokens: 400,
     minCitations: 0,
@@ -86,7 +86,7 @@ const ROUTING: ModelRouteRule[] = [
     feature: "ai_insight",
     taskType: "summarization",
     primary: "llama",
-    fallbackChain: ["med42", "openai_compatible"],
+    fallbackChain: ["med42", "gemini"],
     temperature: 0.2,
     maxOutputTokens: 700,
     minCitations: 0,
@@ -222,11 +222,11 @@ providers: {
       model: env.MED42_MODEL,
       modelVersion: env.MED42_MODEL_VERSION,
     },
-    openai_compatible: {
-      url: env.OPENAI_COMPATIBLE_PROVIDER_URL,
-      apiKey: env.OPENAI_COMPATIBLE_PROVIDER_KEY,
-      model: env.OPENAI_COMPATIBLE_MODEL,
-      modelVersion: env.OPENAI_COMPATIBLE_MODEL_VERSION,
+    gemini: {
+      url: env.GEMINI_PROVIDER_URL,
+      apiKey: env.GEMINI_PROVIDER_KEY,
+      model: env.GEMINI_MODEL,
+      modelVersion: env.GEMINI_MODEL_VERSION,
     },
   },
 } as const;

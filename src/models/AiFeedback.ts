@@ -66,6 +66,6 @@ AiFeedback.init(
     timestamps: true,
     updatedAt: false,
     underscored: true,
-    indexes: [{ fields: ["reviewed", "rating"] }, { fields: ["requestId"] }],
+    indexes: [{ fields: ["reviewed", "rating"] }, { fields: ["request_id"] }],
   }
 );
