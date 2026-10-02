@@ -21,6 +21,7 @@ import { logger } from "../../utils/logger.js";
 import { notifySecurityEvent } from "../../services/notifications/notificationService.js";
 import {
   registerSchema,
+  REGISTER_FORBIDDEN_FIELDS,
   loginSchema,
   refreshSchema,
   googleAuthSchema,
@@ -51,8 +52,12 @@ function refreshTokenExpiry(): Date {
 /**
  * Issues an access/refresh pair and persists the hashed refresh token.
  * A fresh familyId starts a new session lineage for reuse detection.
+ *
+ * Exported because accepting a Partner invitation changes the user's role
+ * mid-session, and the only way for the new role to take effect on a
+ * token-gated route is to hand the caller a newly minted token.
  */
-async function issueSession(user: User): Promise<{
+export async function issueSession(user: User): Promise<{
   accessToken: string;
   refreshToken: string;
 }> {
@@ -103,13 +108,31 @@ async function notifyIfAdditionalSession(userId: string): Promise<void> {
 // POST /api/auth/register
 // ─────────────────────────────────────────────────────────────────────────────
 export async function registerController(req: Request, res: Response): Promise<void> {
+  // role/plan are server-owned. Refuse the request outright rather than ignoring
+  // the field, so a client that tries to grant itself a tier cannot mistake a
+  // successful response for a successful upgrade.
+  const attempted = REGISTER_FORBIDDEN_FIELDS.filter(
+    (field) => req.body?.[field] !== undefined
+  );
+  if (attempted.length > 0) {
+    authLog.warn(`🚨 Registration attempted to set server-owned field(s): ${attempted.join(", ")}`, {
+      attempted,
+    });
+    sendError(
+      res,
+      422,
+      "role and plan cannot be set at sign-up. Every new account starts on the free plan."
+    );
+    return;
+  }
+
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     sendError(res, 422, "Validation failed", parsed.error.flatten().fieldErrors);
     return;
   }
 
-  const { name, email, password, role, plan } = parsed.data;
+  const { name, email, password } = parsed.data;
 
   try {
     // Check if user already exists
@@ -126,8 +149,10 @@ export async function registerController(req: Request, res: Response): Promise<v
       name,
       email,
       passwordHash,
-      role,
-      plan,
+      // Server-owned, matching the Google path: a new account is a free member.
+      // A paid plan is applied only by a verified billing event.
+      role: "member",
+      plan: "free",
     });
 
     const { accessToken, refreshToken } = await issueSession(newUser);

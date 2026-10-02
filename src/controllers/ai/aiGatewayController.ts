@@ -7,6 +7,7 @@ import { getProviderHealth } from "../../ai/providers/index.js";
 import { listPromptBundles } from "../../ai/prompts/index.js";
 import { AI_GATEWAY_CONFIG } from "../../config/aiGateway.js";
 import { loadInsightLogSignals } from "../../services/member/loadInsightLogSignals.js";
+import { consumeAiGeneration } from "../../services/member/entitlements.js";
 import {
   loadContextSource,
   runGateway,
@@ -97,6 +98,23 @@ async function handleGenerate(
     return;
   }
 
+  // Metered before the model runs, not after. A plan limit that is checked once the
+  // work is already done is a report, not a limit. A refused generation spends
+  // nothing and never reaches a provider.
+  const quota = await consumeAiGeneration({ userId, role });
+  if (!quota.allowed) {
+    aiLog.info(`⛔ AI generation refused for plan ${quota.plan} (${quota.reason})`, { userId });
+    sendError(res, 402, quota.message ?? "You have reached the AI insight limit for your plan.", {
+      reason: quota.reason,
+      plan: quota.plan,
+      remaining: quota.remaining === null || quota.remaining === undefined
+        ? "unlimited"
+        : String(quota.remaining),
+      resetsAt: quota.resetsAt ?? "unlimited",
+    });
+    return;
+  }
+
   const result = await runGateway({
     feature: options.feature,
     userId,
@@ -135,6 +153,13 @@ async function handleGenerate(
       // provider's raw text, so a member-facing surface can say what happened
       // without exposing our infrastructure.
       diagnostics: result.diagnostics,
+      // Lets a member-facing surface show "4 of 5 AI insights left" without a
+      // second request, and without the client guessing.
+      usage: {
+        plan: quota.plan,
+        remaining: quota.remaining ?? null,
+        resetsAt: quota.resetsAt ?? null,
+      },
     },
   });
 }
@@ -222,6 +247,23 @@ export async function submitAiFeedback(
       comment: parsed.data.comment ?? null,
     });
 
+    // `recordAiFeedback` returns `recorded: false` when it had nowhere to write
+    // (no DATABASE_URL configured). Reporting that as 201 told the member their
+    // concern was logged when it was not — which is the one thing a "Report
+    // Concern" button must never do.
+    if (!outcome.recorded) {
+      aiLog.error("AI feedback could not be persisted", {
+        userId,
+        requestId: parsed.data.requestId,
+      });
+      sendError(
+        res,
+        503,
+        "We could not save your feedback just now. Please try again shortly."
+      );
+      return;
+    }
+
     sendSuccess(res, 201, "Thank you — your feedback has been recorded", outcome);
   } catch (error) {
     next(error);
@@ -246,7 +288,7 @@ export async function getAiHealth(
   try {
     const role = req.user?.role;
     if (role !== "admin" && role !== "developer") {
-      sendError(res, 403, "AI gateway health is restricted to administrators.");
+      sendError(res, 403, "This area is restricted to HerCompass staff.");
       return;
     }
 

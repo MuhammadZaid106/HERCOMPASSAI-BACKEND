@@ -17,7 +17,15 @@ export class SnapshotFeedback extends Model<
   declare id: CreationOptional<string>;
   declare userId: ForeignKey<User["id"]>;
   declare snapshotVersionId: ForeignKey<SnapshotVersion["id"]> | null;
-  declare rating: "helpful" | "not_helpful";
+  /**
+   * `report_concern` was added so the Snapshot page offers the same three ratings
+   * as the AI surfaces. Previously a member who was alarmed by their Snapshot had
+   * only "Not helpful", which recorded a row nobody ever read.
+   *
+   * Kept as STRING rather than ENUM to match the column already deployed by
+   * `sync()`. New installs get a CHECK constraint from migration 009.
+   */
+  declare rating: "helpful" | "not_helpful" | "report_concern";
   declare comment: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
 }

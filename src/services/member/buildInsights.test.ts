@@ -58,4 +58,26 @@ assert.equal(early.cards.some((card) => card.section === "changing"), false);
 assert.equal(early.cards.some((card) => card.section === "connected"), false);
 assert.equal(early.learnMore.length, 3);
 
+// Every window must route the member to their real personalised suggestions,
+// including the early-data window where no trend card can fire.
+const personal = early.cards.find((card) => card.id === "try-personalised");
+assert.ok(personal, "expected a personalised-steps card");
+assert.equal(personal.href, "/app/insights");
+assert.equal(early.cards.filter((card) => card.id === "try-personalised").length, 1);
+
+// The "what to try" cards must point at observation, never at treatment.
+const declining = buildMemberInsights(
+  trends({
+    sleep: domain("decreasing", -20),
+    energy: domain("decreasing", -15),
+    mood: domain("decreasing", -10),
+  }),
+);
+const tryCards = declining.cards.filter((card) => card.section === "try");
+assert.ok(tryCards.length >= 2);
+for (const card of tryCards) {
+  assert.match(card.why, /trend|approved evidence|logged days/i);
+  assert.doesNotMatch(card.body, /\byou should\b|\btake\b|\bstart taking\b/i);
+}
+
 console.log("[OK] insight checks passed");

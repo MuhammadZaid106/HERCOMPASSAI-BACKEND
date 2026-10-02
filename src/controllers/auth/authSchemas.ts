@@ -13,17 +13,41 @@ const acceptablePassword = z
   .regex(/[A-Z]/, "Password must include at least one uppercase letter")
   .regex(/[0-9]/, "Password must include at least one number");
 
-export const registerSchema = z.object({
-  name: z
-    .string()
-    .min(2, "Name must be at least 2 characters")
-    .max(100, "Name must be under 100 characters")
-    .trim(),
-  email: z.email("Please provide a valid email address").toLowerCase().trim(),
-  password: acceptablePassword,
-  role: z.enum(["member", "partner"]).default("member"),
-  plan: z.enum(["free", "plus", "premium"]).default("free"),
-});
+/**
+ * Registration contract.
+ *
+ * `role` and `plan` are deliberately absent. Accepting them from the request
+ * body let anyone obtain a paid tier by visiting `/register?plan=premium` with no
+ * payment, and let anyone register as a `partner`. They are server-owned and set
+ * by the controller, exactly as the Google path already does — see
+ * `googleAuthController` and `authController`'s Google branch.
+ *
+ * A paid plan is applied only by a verified billing event. No such provider is
+ * connected yet, so every account currently starts on `free`.
+ */
+export const registerSchema = z
+  .object({
+    name: z
+      .string()
+      .min(2, "Name must be at least 2 characters")
+      .max(100, "Name must be under 100 characters")
+      .trim(),
+    email: z.email("Please provide a valid email address").toLowerCase().trim(),
+    password: acceptablePassword,
+  })
+  // Reject rather than silently drop: a caller still sending these needs to know
+  // the server refused the value, not believe it took effect. `registerController`
+  // turns the resulting failure into a message naming the offending fields.
+  .strict();
+
+/**
+ * Account-owned fields a sign-up request must never carry.
+ *
+ * Checked explicitly before `registerSchema` so the rejection names the field
+ * that was actually sent. Zod's own message ("Unrecognized key") would be
+ * accurate but unhelpful to whoever is calling the API.
+ */
+export const REGISTER_FORBIDDEN_FIELDS = ["role", "plan"] as const;
 
 export const loginSchema = z.object({
   email: z.email("Please provide a valid email address").toLowerCase().trim(),

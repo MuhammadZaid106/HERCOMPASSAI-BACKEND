@@ -1,6 +1,12 @@
 import type { Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware.js";
-import { OnboardingProfile, SnapshotFeedback, SnapshotVersion } from "../../models/index.js";
+import {
+  AiFlag,
+  OnboardingProfile,
+  PersonalSnapshot,
+  SnapshotFeedback,
+  SnapshotVersion,
+} from "../../models/index.js";
 import { onboardingPayloadSchema } from "./onboardingSchemas.js";
 import { calculateDeterministicScores } from "../../services/onboarding/calculateScores.js";
 import { generatePersonalSnapshot } from "../../services/onboarding/personalSnapshotService.js";
@@ -288,12 +294,21 @@ export async function getSnapshotVersions(
       const scores = profile?.deterministicScores;
       if (profile?.isCompleted && scores && typeof scores === "object") {
         const record = scores as Record<string, unknown>;
+        // A member whose Snapshot was generated before this table existed has no
+        // version rows at all. Backfilling from the profile gives them their
+        // timeline back; the narrative is only attached when it provably belongs
+        // to version 1, i.e. there is a single stored Snapshot to take it from.
+        const current = await PersonalSnapshot.findOne({ where: { userId } });
+        const onlyVersionOfOne = current
+          ? await SnapshotVersion.count({ where: { userId } }) === 0
+          : false;
         await SnapshotVersion.create({
           userId,
           versionNumber: 1,
           completedAt: profile.completedAt ?? profile.updatedAt ?? new Date(),
           dominantFocusArea:
             typeof record.dominantFocusArea === "string" ? record.dominantFocusArea : null,
+          payload: onlyVersionOfOne ? current?.payload ?? null : null,
           scores: {
             symptomBurdenScore: record.symptomBurdenScore ?? null,
             sleepDisturbanceScore: record.sleepDisturbanceScore ?? null,
@@ -314,6 +329,10 @@ export async function getSnapshotVersions(
         completedAt: version.completedAt,
         dominantFocusArea: version.dominantFocusArea,
         scores: version.scores,
+        // Null means this version predates narrative capture. The member UI says
+        // so rather than substituting the current Snapshot, which would be
+        // today's wording wearing an old date.
+        payload: version.payload ?? null,
       })),
     });
   } catch (error) {
@@ -338,7 +357,11 @@ export async function submitSnapshotFeedback(
     }
     const rating = req.body?.rating;
     const comment = typeof req.body?.comment === "string" ? req.body.comment.trim() : "";
-    if (rating !== "helpful" && rating !== "not_helpful") {
+    if (
+      rating !== "helpful" &&
+      rating !== "not_helpful" &&
+      rating !== "report_concern"
+    ) {
       sendError(res, 400, "Choose whether this Snapshot was helpful");
       return;
     }
@@ -356,8 +379,40 @@ export async function submitSnapshotFeedback(
       rating,
       comment: comment || null,
     });
+
+    // A Snapshot rating was write-only: the row was stored and nothing ever read
+    // it, so "Not helpful" on the Snapshot produced no review-queue entry at all.
+    // Negative ratings now open the same `ai_flags` queue the AI surfaces use,
+    // pointed at the Gateway request that generated the current Snapshot.
+    let flagged = false;
+    if (rating !== "helpful") {
+      const snapshot = await PersonalSnapshot.findOne({
+        where: { userId },
+        attributes: ["requestId"],
+      });
+      if (snapshot) {
+        await AiFlag.create({
+          requestId: snapshot.requestId,
+          userId,
+          feature: "personal_snapshot",
+          reason: rating === "report_concern" ? "user_report_concern" : "user_not_helpful",
+          severity: rating === "report_concern" ? "high" : "medium",
+          detail: comment || null,
+          reviewStatus: "open",
+        });
+        flagged = true;
+      } else {
+        logger.warn(
+          `[ONBOARDING] Snapshot feedback ${feedback.id} could not be flagged: no stored Snapshot for user ${userId}`
+        );
+      }
+    }
+
     logger.info(`[ONBOARDING] Snapshot feedback ${feedback.id} saved for user ${userId}`);
-    sendSuccess(res, 201, "Thank you. Your feedback has been saved", { id: feedback.id });
+    sendSuccess(res, 201, "Thank you. Your feedback has been saved", {
+      id: feedback.id,
+      flagged,
+    });
   } catch (error) {
     next(error);
   }

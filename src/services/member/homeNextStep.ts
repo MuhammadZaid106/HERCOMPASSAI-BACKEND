@@ -1,6 +1,13 @@
 /**
  * Deterministic home recommendation.
  * Software picks a template. No model is involved.
+ *
+ * These cards cannot personalise advice — that is what the Gateway's
+ * `personalizedRecommendations` are for. So this template never claims to be a
+ * suggestion for the member's health. Each one either points at a task the
+ * member can finish now, or points at the surface where their real
+ * evidence-informed steps already live. Home is a navigation card, not a
+ * treatment plan, and must not read like one.
  */
 
 export type CheckInTab = "symptoms" | "mood" | "sleep" | "energy";
@@ -18,36 +25,36 @@ interface FocusStep {
 
 const FOCUS_STEPS: Record<string, FocusStep> = {
   "Sleep deeply through the night": {
-    title: "Keep one evening wind-down",
-    body: "Your Snapshot focus is sleep. A consistent wind-down is one small step to try this week.",
+    title: "Your sleep steps are on your Snapshot",
+    body: "Your Snapshot focus is sleep. The steps picked for this focus, and how to start each one, are in section 6 of your Snapshot.",
   },
   "Restorative Sleep & Evening Wind-Down": {
-    title: "Keep one evening wind-down",
-    body: "Your Snapshot focus is restorative sleep. A consistent wind-down is one small step to try this week.",
+    title: "Your sleep steps are on your Snapshot",
+    body: "Your Snapshot focus is restorative sleep. The steps picked for this focus, and how to start each one, are in section 6 of your Snapshot.",
   },
   "Have steady, dependable daytime energy": {
-    title: "Notice what the day asks of you",
-    body: "Your Snapshot focus is daytime energy. Logging energy on the days it dips makes the pattern easier to see.",
+    title: "Your energy steps are on your Snapshot",
+    body: "Your Snapshot focus is daytime energy. The steps picked for this focus, and how to start each one, are in section 6 of your Snapshot.",
   },
   "Metabolic Energy & Low-Impact Movement": {
-    title: "Notice what the day asks of you",
-    body: "Your Snapshot focus is energy and gentle movement. Short logs on low-energy days keep that picture honest.",
+    title: "Your energy steps are on your Snapshot",
+    body: "Your Snapshot focus is energy and gentle movement. The steps picked for this focus, and how to start each one, are in section 6 of your Snapshot.",
   },
   "Feel more emotionally balanced & patient": {
-    title: "Give mood a daily mark",
-    body: "Your Snapshot focus is emotional balance. A quick mood log is enough to see whether the week is shifting.",
+    title: "Your mood steps are on your Snapshot",
+    body: "Your Snapshot focus is emotional balance. The steps picked for this focus, and how to start each one, are in section 6 of your Snapshot.",
   },
   "Nervous System Regulation & Breathwork": {
-    title: "Give mood a daily mark",
-    body: "Your Snapshot focus is steadier days. A quick mood log shows whether that picture is holding.",
+    title: "Your mood steps are on your Snapshot",
+    body: "Your Snapshot focus is steadier days. The steps picked for this focus, and how to start each one, are in section 6 of your Snapshot.",
   },
   "Understand my symptoms and hormonal triggers": {
-    title: "Keep symptom logs specific",
-    body: "Your Snapshot focus is symptom patterns. Naming what showed up today is more useful than a long note.",
+    title: "Your symptom steps are on your Snapshot",
+    body: "Your Snapshot focus is symptom patterns. The steps picked for this focus, and how to start each one, are in section 6 of your Snapshot.",
   },
   "Vasomotor Comfort & Cooling Support": {
-    title: "Keep symptom logs specific",
-    body: "Your Snapshot focus is comfort through the day. Logging what showed up keeps that pattern visible.",
+    title: "Your comfort steps are on your Snapshot",
+    body: "Your Snapshot focus is comfort through the day. The steps picked for this focus, and how to start each one, are in section 6 of your Snapshot.",
   },
   "Help my partner understand and support me": {
     title: "Decide what a partner may see",
@@ -58,26 +65,26 @@ const FOCUS_STEPS: Record<string, FocusStep> = {
     body: "Your Snapshot focus includes your relationship. You choose whether any summary is shared.",
   },
   "Feel better and more comfortable day to day": {
-    title: "Stay with one daily check-in",
-    body: "Your Snapshot focus is day-to-day comfort. A short check-in is how that picture stays current.",
+    title: "Your day-to-day steps are on your Snapshot",
+    body: "Your Snapshot focus is day-to-day comfort. The steps picked for this focus, and how to start each one, are in section 6 of your Snapshot.",
   },
   "Build sustainable, hormone-friendly routines": {
-    title: "Stay with one daily check-in",
-    body: "Your Snapshot focus is a routine you can keep. The check-in is the routine this page can see.",
+    title: "Your routine steps are on your Snapshot",
+    body: "Your Snapshot focus is a routine you can keep. The steps picked for this focus, and how to start each one, are in section 6 of your Snapshot.",
   },
   "Become confident managing this stage of life": {
     title: "Revisit what the Snapshot noticed",
     body: "Your Snapshot is the baseline. Progress shows what your later logs add to it.",
   },
   "Holistic Rhythm & Daily Baseline": {
-    title: "Stay with one daily check-in",
-    body: "Your Snapshot is a whole-day baseline. A short check-in is how that picture stays current.",
+    title: "Your baseline steps are on your Snapshot",
+    body: "Your Snapshot focus is a whole-day baseline. The steps picked for this focus, and how to start each one, are in section 6 of your Snapshot.",
   },
 };
 
 const DEFAULT_STEP: FocusStep = {
-  title: "Stay with one daily check-in",
-  body: "Your Snapshot set a focus. A short check-in is how this page keeps that picture current.",
+  title: "Your steps are on your Snapshot",
+  body: "Your Snapshot set a focus. The steps picked for that focus, and how to start each one, are in section 6 of your Snapshot.",
 };
 
 function stepForFocus(focus: string | null): FocusStep {

@@ -19,6 +19,17 @@ export class SnapshotVersion extends Model<
   declare completedAt: Date;
   declare dominantFocusArea: CreationOptional<string | null>;
   declare scores: CreationOptional<Record<string, unknown>>;
+  /**
+   * The full Snapshot narrative as the member was shown it at this point in time.
+   *
+   * This column used to not exist, which meant history could only ever show four
+   * scores and a focus area. The narrative was in `personal_snapshots`, and that
+   * table holds exactly one row per user — so re-reading a past version showed a
+   * member their current Snapshot wearing an old date. Nullable: versions recorded
+   * before this column existed have no narrative and are not backfilled, because
+   * the text that was shown then was never stored anywhere.
+   */
+  declare payload: CreationOptional<Record<string, unknown> | null>;
   declare createdAt: CreationOptional<Date>;
 }
 
@@ -35,6 +46,7 @@ SnapshotVersion.init(
     completedAt: { type: DataTypes.DATE, allowNull: false },
     dominantFocusArea: { type: DataTypes.STRING(255), allowNull: true },
     scores: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
+    payload: { type: DataTypes.JSONB, allowNull: true },
     createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
   },
   {

@@ -10,6 +10,7 @@ import trackingRoutes from "./routes/tracking/trackingRoutes.js";
 import memberRoutes from "./routes/member/memberRoutes.js";
 import aiRoutes from "./routes/ai/aiRoutes.js";
 import partnerInviteRoutes from "./routes/partner/partnerInviteRoutes.js";
+import adminRoutes from "./routes/admin/adminRoutes.js";
 import { globalErrorHandler } from "./middleware/errorHandler.js";
 import { connectDB } from "./models/index.js";
 
@@ -63,7 +64,12 @@ app.use(
         callback(new Error(`Origin ${requestOrigin} not allowed by CORS`));
       }
     },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    // PATCH is required by the admin review queue: `PATCH /api/admin/ai-flags/:id`
+    // is how staff move a flag through its lifecycle. It was missing here, so the
+    // browser preflight rejected the method and every triage button failed in the
+    // browser before the request reached Express — surfacing to the admin as a
+    // network error rather than a server fault.
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With"],
     exposedHeaders: ["Content-Length"],
     credentials: true,
@@ -97,6 +103,7 @@ app.use("/api/tracking", trackingRoutes);
 app.use("/api/member", memberRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/partner", partnerInviteRoutes);
+app.use("/api/admin", adminRoutes);
 
 
 // ─── Global Error Handler (must be last) ─────────────────────────────────────

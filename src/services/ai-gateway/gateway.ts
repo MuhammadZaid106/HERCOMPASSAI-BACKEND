@@ -4,9 +4,11 @@ import { logger } from "../../utils/logger.js";
 import { runPreGenerationGuardrails, runOutputGuardrails } from "../../ai/guardrails/guardrailService.js";
 import { extractJsonObject } from "../../ai/schemas/jsonPayload.js";
 import {
+  formatSchemaIssues,
   partnerDigestModelOutputSchema,
   personalSnapshotModelOutputSchema,
 } from "../../ai/schemas/outputSchemas.js";
+import { z } from "zod";
 import {
   ModelProviderError,
   toClientSafeProviderMessage,
@@ -689,8 +691,19 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
     const rawPayload = extractJsonObject(generation.content, generation.provider);
     repaired = parseModelOutput(policy.outputSchemaKey, rawPayload);
   } catch (error) {
+    // `formatSchemaIssues` was written for exactly this and never called, so a
+    // contract regression logged as one indistinguishable "failed schema
+    // validation" line. Operators could see the fallback happened but not which
+    // field the model got wrong, which is the only thing that tells you whether to
+    // fix the prompt or the schema.
+    const issues =
+      error instanceof z.ZodError
+        ? formatSchemaIssues(error)
+        : [error instanceof Error ? error.message : "unknown parse error"];
+
     gatewayLog.warn(
-      `Generated response for request ${requestId} failed schema validation. Falling back.`
+      `Generated response for request ${requestId} failed schema validation. Falling back.`,
+      issues
     );
     return serveFallback(
       [
