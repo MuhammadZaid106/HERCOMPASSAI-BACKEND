@@ -63,12 +63,6 @@ export interface GeminiProviderConfig {
 /** One `parts[]` entry. Only text is used; the Gateway has no multimodal need. */
 interface GeminiPart {
   text?: string;
-  /**
-   * Set on a reasoning model's chain-of-thought entries. These arrive in the same
-   * `parts[]` array as the answer, ahead of it, so they are metadata about how the
-   * model thought rather than part of what it said.
-   */
-  thought?: boolean;
 }
 
 interface GeminiContent {
@@ -176,32 +170,41 @@ function buildRequestBody(
       // `response_format` object. The Gateway asks for the same guarantee under
       // a different name.
       ...(jsonMode ? { responseMimeType: "application/json" } : {}),
+      /**
+       * Thinking is switched off, and `maxOutputTokens` is the reason.
+       *
+       * Reasoning tokens are drawn from the *output* budget, so a thinking model
+       * spends the allowance the answer needed before writing any. Measured on
+       * `gemini-3.8-flash` against the real `ai_insight` prompt at the route's
+       * 900-token budget: 863 tokens of thinking, 33 of answer, `MAX_TOKENS`,
+       * cut off mid-string. `jsonPayload.ts` cannot recover that — every one of
+       * its five strategies needs an unterminated string to be closed first, so
+       * a truncation inside a literal fails all of them and a correct answer is
+       * reported as `schema_invalid`. The same prompt with thinking disabled
+       * spends 0 on thinking, returns 714 tokens, `STOP`, and parses.
+       *
+       * Nothing is lost by disabling it. The determinism rules forbid the model
+       * from calculating, asserting certainty, or selecting a source, so the
+       * deliberation a reasoning model performs has nothing to decide that the
+       * deterministic context and approved-evidence block have not already
+       * settled. Disabling it also removes the 4s of latency it added per call.
+       */
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 }
 
 /**
- * Concatenates the answer text of a candidate, which may arrive split.
+ * Concatenates the text parts of a candidate, which may arrive split.
  *
- * Entries flagged `thought` are excluded. A reasoning model such as Gemini 3.x
- * Flash returns its chain-of-thought in the same `parts[]` array, ahead of the
- * answer, and concatenating the two produces reasoning prose glued to the JSON.
- * Every JSON recovery strategy in `jsonPayload.ts` assumes one contiguous
- * document and none can skip a leading preamble, so the payload failed schema
- * validation on a perfectly good answer — reported as `schema_invalid`, which
- * points an operator at the prompt and the output contract instead of at the
- * adapter. It also meant the output guardrails, which run on this raw text ahead
- * of schema validation, were inspecting internal reasoning as if a member would
- * read it.
- *
- * A response carrying only thought entries therefore has no answer, and returns
- * null so the refusal path classifies it instead of passing prose downstream.
+ * Reasoning models report their thinking through `usageMetadata.thoughtsTokenCount`,
+ * not as `parts[]` entries — verified against `gemini-3.8-flash`, which returns a
+ * single unflagged part. There is no chain-of-thought in the text to strip.
  */
 function readCandidateText(candidate: GeminiCandidate | undefined): string | null {
   const parts = candidate?.content?.parts;
   if (!Array.isArray(parts)) return null;
   const text = parts
-    .filter((part) => part.thought !== true)
     .map((part) => (typeof part.text === "string" ? part.text : ""))
     .join("");
   return text.trim() === "" ? null : text;

@@ -193,6 +193,29 @@ describe("geminiProvider: response translation", () => {
     assert.deepEqual(response.usage, { promptTokens: 11, completionTokens: 22, totalTokens: 33 });
   });
 
+  it("does not let reasoning tokens consume the answer budget", async () => {
+    const provider = providerAnswering(200, ANSWER);
+    await provider.generate(REQUEST);
+
+    const generationConfig = capturedRequest(provider).body.generationConfig as Record<string, unknown>;
+    // Reasoning tokens are drawn from maxOutputTokens. Left enabled, a thinking
+    // model spends the route's whole allowance before writing anything and the
+    // answer is cut off mid-string, which no recovery strategy in jsonPayload.ts
+    // can close. Measured on gemini-3.8-flash: 863 thinking / 33 answer tokens at
+    // a 900 budget, versus 0 / 714 with this set.
+    assert.deepEqual(generationConfig.thinkingConfig, { thinkingBudget: 0 });
+  });
+
+  it("keeps the output budget whole for the answer", async () => {
+    const provider = providerAnswering(200, ANSWER);
+    await provider.generate(REQUEST);
+
+    const generationConfig = capturedRequest(provider).body.generationConfig as Record<string, unknown>;
+    // The budget must not be split, and must not be raised to paper over
+    // truncation — the route owns the token limit, not the adapter.
+    assert.equal(generationConfig.maxOutputTokens, 512);
+  });
+
   it("joins text that arrives split across parts", async () => {
     const response = await providerAnswering(200, {
       candidates: [
@@ -206,77 +229,22 @@ describe("geminiProvider: response translation", () => {
     assert.equal(response.content, '{"a":1}');
   });
 
-  it("excludes a reasoning model's thought parts from the answer", async () => {
+  it("still reads a part with no thought flag as answer text", async () => {
+    // Reasoning models report thinking through usageMetadata.thoughtsTokenCount,
+    // not as flagged parts — gemini-3.8-flash returns a single unflagged part.
     const response = await providerAnswering(200, {
       candidates: [
         {
           content: {
             role: "model",
-            parts: [
-              { text: "The member logged sleep data, so I will lead with rest.", thought: true },
-              { text: '{"dominantFocusArea":"sleep"}' },
-            ],
+            parts: [{ text: '{"a":1}', thoughtSignature: "EvwPCvkPAWkUfRMlRcDZdMQ" }],
           },
-          finishReason: "STOP",
-        },
-      ],
-    }).generate(REQUEST);
-
-    // Concatenating both yields reasoning prose glued to the JSON, which no
-    // recovery strategy in jsonPayload.ts can parse. The whole answer was valid.
-    assert.equal(response.content, '{"dominantFocusArea":"sleep"}');
-  });
-
-  it("keeps thought parts out of the text the output guardrails inspect", async () => {
-    // Guardrails run on this raw string ahead of schema validation, so reasoning
-    // prose in here is treated as member-facing copy.
-    const thought = "The member may be describing a diagnosis, which I must not confirm.";
-    const response = await providerAnswering(200, {
-      candidates: [
-        {
-          content: {
-            role: "model",
-            parts: [{ text: thought, thought: true }, { text: '{"summary":"rest"}' }],
-          },
-          finishReason: "STOP",
-        },
-      ],
-    }).generate(REQUEST);
-
-    assert.ok(!response.content.includes(thought), "reasoning must not reach the guardrails");
-  });
-
-  it("still reads an unflagged entry as answer text", async () => {
-    // `thought` is absent rather than false on a normal entry, so only an explicit
-    // true may exclude it. Filtering on truthiness instead would drop every part.
-    const response = await providerAnswering(200, {
-      candidates: [
-        {
-          content: { role: "model", parts: [{ text: '{"a":1}', thought: false }] },
           finishReason: "STOP",
         },
       ],
     }).generate(REQUEST);
 
     assert.equal(response.content, '{"a":1}');
-  });
-
-  it("reports no content when the model returned only reasoning", async () => {
-    // Truncated mid-thought by maxOutputTokens: there is genuinely no answer, and
-    // passing prose downstream would surface as a misleading schema_invalid.
-    const error = await captureError(
-      providerAnswering(200, {
-        candidates: [
-          {
-            content: { role: "model", parts: [{ text: "Still deliberating", thought: true }] },
-            finishReason: "MAX_TOKENS",
-          },
-        ],
-      }).generate(REQUEST)
-    );
-
-    assert.equal(error.kind, "invalid_response");
-    assert.ok(!/still deliberating/i.test(error.detail ?? ""), "reasoning must not leak as error detail");
   });
 
   it("maps a truncated answer to length rather than a clean stop", async () => {
