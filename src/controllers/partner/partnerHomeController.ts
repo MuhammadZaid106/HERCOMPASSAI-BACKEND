@@ -2,7 +2,9 @@ import type { NextFunction, Response } from "express";
 import { z } from "zod";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware.js";
 import { User } from "../../models/User.js";
+import { loadPartnerGate } from "../../services/partner/partnerAccess.js";
 import { loadPartnerHome, partnerHomeAllowed } from "../../services/partner/partnerHome.js";
+import { writePartnerAudit } from "../../services/partner/partnerAudit.js";
 import { leavePartnerSupport } from "../../services/partner/partnerInviteService.js";
 import { sendError, sendSuccess } from "../../utils/apiResponse.js";
 import { logger } from "../../utils/logger.js";
@@ -25,6 +27,15 @@ export async function getPartnerHome(
     }
 
     const home = await loadPartnerHome(req.user.userId);
+    const gate = await loadPartnerGate(req.user.userId, req.user.role);
+    await writePartnerAudit({
+      partnerUserId: req.user.userId,
+      memberUserId: gate.ok ? gate.memberUserId : gate.memberUserId,
+      action: "home_read",
+      topicAsked: "home",
+      topicsAllowed: gate.topicsAllowed,
+      result: home.connected ? "allowed" : gate.result === "refused" ? "refused" : "empty",
+    });
     homeLog.info(`Partner home for ${req.user.userId}: connected=${home.connected}`);
     sendSuccess(res, 200, "Partner home", home);
   } catch (error) {

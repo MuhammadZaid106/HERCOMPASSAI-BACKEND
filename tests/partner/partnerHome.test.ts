@@ -28,6 +28,8 @@ describe("partner home", () => {
       sharingOn: true,
       scopes: ["general_support", "communication_guidance"],
       memberName: "Maria Alvarez",
+      memberEmail: "maria@example.com",
+      joinedAt: "2026-10-03T00:00:00.000Z",
       memberPlan: "free",
     });
     assert.equal(home.connected, true);
@@ -37,8 +39,9 @@ describe("partner home", () => {
     assert.equal(home.sharedActivities, false);
     assert.equal(home.communicationGuidance, true);
     assert.equal(home.digestIncluded, false);
+    assert.equal(home.memberEmail, "maria@example.com");
+    assert.equal(home.joinedAt, "2026-10-03T00:00:00.000Z");
     const serialized = JSON.stringify(home);
-    assert.equal(serialized.includes("email"), false);
     assert.equal(serialized.includes("symptom"), false);
     assert.equal(serialized.includes("score"), false);
     assert.equal(serialized.includes("note"), false);

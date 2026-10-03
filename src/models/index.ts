@@ -22,6 +22,9 @@ import { PartnerInvite } from "./PartnerInvite.js";
 import { SavedContent } from "./SavedContent.js";
 import { EntitlementUsage } from "./EntitlementUsage.js";
 import { CommunityNote } from "./CommunityNote.js";
+import { PartnerAuditLog } from "./PartnerAuditLog.js";
+import { PartnerLessonProgress } from "./PartnerLessonProgress.js";
+import { PartnerDigest } from "./PartnerDigest.js";
 
 // Setup Model Associations
 User.hasMany(RefreshToken, {
@@ -166,4 +169,7 @@ export {
   SavedContent,
   EntitlementUsage,
   CommunityNote,
+  PartnerAuditLog,
+  PartnerLessonProgress,
+  PartnerDigest,
 };
