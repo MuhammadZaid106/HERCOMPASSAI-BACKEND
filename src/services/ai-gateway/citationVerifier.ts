@@ -23,22 +23,13 @@ import type {
  *   AI claim -> citation id -> Citation Registry -> evidence source -> verify
  *
  * When a claim cannot be supported the spec allows three responses: remove the
-<<<<<<< HEAD
- * claim, rewrite it, or block the response. We implement removal here (deterministic
- * and auditable); blocking happens in SCI if nothing survives.
- *
- * Every model-authored string in the payload passes through the numeric-grounding
- * check — not only the recommendation list. A figure the engine never produced is
- * a hallucinated clinical observation wherever it appears, and the four pattern
- * summaries plus the next steps are the sections a member reads first, so a
- * verifier that only swept the recommendation list left the largest surfaces of
- * the Snapshot unchecked while appearing to enforce grounding.
-=======
  * claim, rewrite it, or block the response. A recommendation with no retrieved
  * citation id is removed. If that empties the list and this request did retrieve
  * evidence, the list is rewritten from those cards. SCI still blocks when nothing
  * citable remains.
->>>>>>> origin/feature/for-main
+ *
+ * Every model-authored string in the payload also passes through the numeric-grounding
+ * check. A figure the engine never produced is removed wherever it appears.
  */
 
 export interface VerificationResult {
