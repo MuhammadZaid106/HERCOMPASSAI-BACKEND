@@ -160,7 +160,7 @@ async function findReusableSnapshot(
 ): Promise<StoredSnapshotRow | null> {
   try {
     const stored = await PersonalSnapshot.findOne({ where: { userId, contextFingerprint: fingerprint } });
-    if (!stored) return null;
+    if (!stored || stored.resultStatus === "fallback") return null;
     return { requestId: stored.requestId, contextFingerprint: stored.contextFingerprint, payload: stored.payload };
   } catch (error) {
     snapshotLog.warn(

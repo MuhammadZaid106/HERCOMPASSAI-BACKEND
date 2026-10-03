@@ -245,7 +245,7 @@ export async function getPersonalSnapshot(
     const outcome = await generatePersonalSnapshot({
       userId,
       role: "member",
-      force: req.query.refresh === "true",
+      force: req.query.refresh === "true" || req.query.refresh === "1" || Boolean(req.query.refresh),
     });
 
     if (!outcome.ok) {
