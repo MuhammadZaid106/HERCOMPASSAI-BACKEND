@@ -87,10 +87,18 @@ const envSchema = z.object({
   MED42_MODEL: z.string().default(""),
   MED42_MODEL_VERSION: z.string().default(""),
 
-  OPENAI_COMPATIBLE_PROVIDER_URL: z.string().default(""),
-  OPENAI_COMPATIBLE_PROVIDER_KEY: z.string().default(""),
-  OPENAI_COMPATIBLE_MODEL: z.string().default(""),
-  OPENAI_COMPATIBLE_MODEL_VERSION: z.string().default(""),
+  /**
+   * Google Gemini, on its native `generateContent` API.
+   *
+   * Unlike the two engines above, this URL is an API root that already contains
+   * the version segment: the adapter appends `/models/<GEMINI_MODEL>:generateContent`
+   * itself, so a URL ending in `/v1beta/openai` or `/v1/chat/completions` is wrong.
+   */
+  GEMINI_PROVIDER_URL: z.string().default(""),
+  GEMINI_PROVIDER_KEY: z.string().default(""),
+  /** Model id without the `models/` prefix, e.g. `gemini-3.8-flash`. */
+  GEMINI_MODEL: z.string().default(""),
+  GEMINI_MODEL_VERSION: z.string().default(""),
 });
 
 const parsed = envSchema.safeParse(process.env);

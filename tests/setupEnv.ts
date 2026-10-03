@@ -16,6 +16,6 @@ process.env.JWT_SECRET =
 process.env.JWT_REFRESH_SECRET =
   process.env.JWT_REFRESH_SECRET ?? "test-refresh-secret-0000000000000000000000000000";
 
-// Allow the whole chain (med42, llama, openai_compatible) to be attempted before
+// Allow the whole chain (med42, llama, gemini) to be attempted before
 // the deterministic fallback serves. Production keeps the tighter latency budget.
 process.env.AI_GATEWAY_MAX_FALLBACK_ATTEMPTS = "3";

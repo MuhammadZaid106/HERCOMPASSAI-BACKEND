@@ -1,8 +1,13 @@
 import { createHash } from "node:crypto";
 import { AI_GATEWAY_CONFIG } from "../../config/aiGateway.js";
 import {
+  describeTransportFailure,
+  formatStatusSuffix,
+  isPermanentRejection,
+  readErrorDetail,
+} from "./providerTransport.js";
+import {
   ModelProviderError,
-  redactProviderText,
   type AITaskType,
   type ModelCapabilities,
   type ModelFinishReason,
@@ -17,11 +22,15 @@ import {
 } from "../types/index.js";
 
 /**
- * Shared OpenAI-compatible chat-completions transport.
+ * OpenAI-compatible chat-completions transport.
  *
  * Llama 3, Med42 and most self-hosted inference servers (vLLM, TGI, llama.cpp,
  * Together, Fireworks, Ollama) speak this dialect. Keeping the transport in one
  * place means a new engine is a config entry, not a new networking layer.
+ *
+ * Google Gemini is the exception: it is served by `GeminiProvider`, which speaks
+ * the native `generateContent` dialect rather than emulating this one. Failure
+ * classification is shared between them in `providerTransport.ts`.
  *
  * Security: credentials are attached here and nowhere else. They are never
  * logged, never placed in an error message, and never returned to a caller.
@@ -100,47 +109,9 @@ function normalizeUsage(usage: ChatCompletionResponse["usage"]): ModelUsage {
  * is invalid" — two problems with two completely different fixes. Discarding the
  * body is what reduced both to the word "unavailable".
  *
- * Redaction happens here rather than at each call site because both consumers
- * embed the result in text that leaves the transport: the failure message and the
- * health detail. Upstream providers do echo the token they were handed in 401
- * bodies, so an unredacted return value would put a live credential in a log
- * file. The body is also length-capped so a misconfigured or hostile endpoint
- * cannot stream an unbounded payload into a log.
+ * See `providerTransport.ts` for the shared implementation and the redaction
+ * rules it applies.
  */
-async function readErrorDetail(response: Response): Promise<string | null> {
-  try {
-    const text = (await response.text()).slice(0, 2000);
-    if (text.trim() === "") return null;
-
-    let extracted: string;
-    try {
-      const parsed = JSON.parse(text) as {
-        error?: { message?: unknown; code?: unknown; type?: unknown };
-        message?: unknown;
-      };
-      const parts: string[] = [];
-      if (typeof parsed.error?.message === "string") parts.push(parsed.error.message);
-      else if (typeof parsed.message === "string") parts.push(parsed.message);
-      if (typeof parsed.error?.code === "string") parts.push(`code=${parsed.error.code}`);
-      else if (typeof parsed.error?.type === "string") parts.push(`type=${parsed.error.type}`);
-      extracted = parts.length > 0 ? parts.join(" ") : text;
-    } catch {
-      // Not JSON — a proxy or gateway error page. The text is still the reason.
-      extracted = text;
-    }
-
-    return redactProviderText(extracted);
-  } catch {
-    return null;
-  }
-}
-
-/** First line of a detail string, for a one-line log message. */
-function summariseDetail(detail: string | null): string | null {
-  if (!detail) return null;
-  const firstLine = detail.split("\n")[0].trim();
-  return firstLine === "" ? null : firstLine.slice(0, 200);
-}
 
 export class HttpChatProvider implements ModelProvider {
   readonly name: ModelProviderName;
@@ -212,12 +183,12 @@ export class HttpChatProvider implements ModelProvider {
         // as "unavailable" is what made a permanent misconfiguration look like a
         // transient outage, so the kind now distinguishes "try again" from
         // "fix the configuration".
-        const kind = response.status >= 400 && response.status < 500 ? "rejected" : "unavailable";
+        const kind = isPermanentRejection(response.status) ? "rejected" : "unavailable";
         const detail = await readErrorDetail(response);
         throw new ModelProviderError(
           kind,
           this.name,
-          `Provider "${this.name}" returned status ${response.status}${summariseDetail(detail) ? ` — ${summariseDetail(detail)}` : ""}`,
+          `Provider "${this.name}" returned status ${response.status}${formatStatusSuffix(detail)}`,
           { httpStatus: response.status, detail }
         );
       }
@@ -279,7 +250,7 @@ export class HttpChatProvider implements ModelProvider {
             max_tokens: 1,
             temperature: 0,
           }),
-            signal: AbortSignal.timeout(AI_GATEWAY_CONFIG.limits.healthTimeoutMs),
+          signal: AbortSignal.timeout(AI_GATEWAY_CONFIG.limits.healthTimeoutMs),
         }
       );
 
@@ -301,9 +272,9 @@ export class HttpChatProvider implements ModelProvider {
       const detail = await readErrorDetail(response);
       return {
         provider: this.name,
-        status: response.status >= 400 && response.status < 500 ? "degraded" : "unavailable",
+        status: isPermanentRejection(response.status) ? "degraded" : "unavailable",
         latencyMs,
-        detail: `Probe returned status ${response.status} for model "${this.config.model}"${summariseDetail(detail) ? ` - ${summariseDetail(detail)}` : ""}.`,
+        detail: `Probe returned status ${response.status} for model "${this.config.model}"${formatStatusSuffix(detail)}.`,
         checkedAt: new Date().toISOString(),
       };
     } catch (error) {
@@ -383,57 +354,4 @@ export class HttpChatProvider implements ModelProvider {
       { cause: error, detail: describeTransportFailure(error) }
     );
   }
-}
-
-/** Node/libuv error codes that are worth naming, keyed to something readable. */
-const TRANSPORT_ERROR_NAMES: Readonly<Record<string, string>> = {
-  ENOTFOUND: "DNS lookup failed - the hostname does not resolve",
-  EAI_AGAIN: "DNS lookup failed - the resolver did not answer",
-  ECONNREFUSED: "connection refused - nothing is listening on that port",
-  ECONNRESET: "connection reset by the endpoint",
-  ETIMEDOUT: "connection timed out",
-  EHOSTUNREACH: "host unreachable",
-  ENETUNREACH: "network unreachable",
-  EPIPE: "connection closed before the response was read",
-  CERT_HAS_EXPIRED: "TLS certificate has expired",
-  DEPTH_ZERO_SELF_SIGNED_CERT: "TLS certificate is self-signed and untrusted",
-  UNABLE_TO_VERIFY_LEAF_SIGNATURE: "TLS certificate chain could not be verified",
-};
-
-/**
- * Extracts a safe, useful reason from a transport-level failure.
- *
- * A bare `fetch` rejection carries its cause in `name` and `code`, and neither is
- * self-describing: an aborted request reports `name: "TimeoutError"`, and a DNS
- * failure reports `code: "ENOTFOUND"`. Reporting "could not be reached" without
- * them collapses "wrong hostname", "nothing listening", "expired certificate" and
- * "the model is just slow" into one indistinguishable line, so this is what makes
- * the difference between a log an operator can act on and one they cannot.
- *
- * `code` is typed as a string but arrives as a number for libuv errors, so both
- * are accepted.
- */
-function describeTransportFailure(error: unknown): string | null {
-  if (!(error instanceof Error)) return null;
-
-  // An abort is the most common cause and the least legible without this branch:
-  // `TimeoutError` is what `AbortSignal.timeout` raises, and it arrives with a
-  // numeric code that reads as nothing at all.
-  if (error.name === "TimeoutError" || error.name === "AbortError") {
-    return "the request timed out before the engine answered";
-  }
-
-  for (const candidate of [error, (error as { cause?: unknown }).cause]) {
-    if (!(candidate instanceof Error)) continue;
-
-    const code = (candidate as { code?: unknown }).code;
-    if (typeof code === "string" && code.trim() !== "") {
-      return TRANSPORT_ERROR_NAMES[code] ?? code;
-    }
-    if (typeof code === "number" && Number.isFinite(code)) {
-      return `platform error code ${code}`;
-    }
-  }
-
-  return null;
 }

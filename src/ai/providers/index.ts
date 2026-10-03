@@ -1,15 +1,17 @@
 import { env } from "../../config/env.js";
 import { logger } from "../../utils/logger.js";
+import { geminiProvider } from "./gemini.provider.js";
 import { llamaProvider } from "./llama.provider.js";
 import { med42Provider } from "./med42.provider.js";
-import { openAiCompatibleProvider } from "./openaiCompatible.provider.js";
 import type { ModelProvider, ModelProviderName, ProviderHealth } from "../types/index.js";
 
 /**
  * Provider registry.
  *
  * Adding an engine means adding one entry here plus one config block — no feature
- * module and no router logic changes.
+ * module and no router logic changes. `gemini` is registered alongside the two
+ * OpenAI-compatible engines because it is reached over a different wire protocol,
+ * not because it is routed differently: the router only sees `ModelProvider`.
  */
 
 const registryLog = logger.module("AI-PROVIDERS");
@@ -18,7 +20,7 @@ const providers = new Map<ModelProviderName, ModelProvider>();
 
 providers.set(llamaProvider.name, llamaProvider);
 providers.set(med42Provider.name, med42Provider);
-providers.set(openAiCompatibleProvider.name, openAiCompatibleProvider);
+providers.set(geminiProvider.name, geminiProvider);
 
 export function getProvider(name: ModelProviderName): ModelProvider | undefined {
   return providers.get(name);

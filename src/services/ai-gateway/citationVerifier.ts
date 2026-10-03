@@ -1,4 +1,5 @@
 import { isCitableRecord } from "./evidenceService.js";
+import { buildApprovedPatternBlock, finiteScore } from "./approvedPhrases.js";
 import { recommendationsFromEvidence } from "./fallbackService.js";
 import { NUMERIC_TOKEN_PATTERN } from "../../ai/guardrails/languagePatterns.js";
 import { collectPermittedNumbers } from "../../ai/guardrails/guardrailService.js";
@@ -6,6 +7,7 @@ import { AI_GATEWAY_CONFIG } from "../../config/aiGateway.js";
 import type {
   GatewayCitation,
   GatewayContext,
+  GatewayPatternBlock,
   GatewayRecommendation,
   RetrievedEvidence,
   SciFinding,
@@ -21,10 +23,22 @@ import type {
  *   AI claim -> citation id -> Citation Registry -> evidence source -> verify
  *
  * When a claim cannot be supported the spec allows three responses: remove the
+<<<<<<< HEAD
+ * claim, rewrite it, or block the response. We implement removal here (deterministic
+ * and auditable); blocking happens in SCI if nothing survives.
+ *
+ * Every model-authored string in the payload passes through the numeric-grounding
+ * check — not only the recommendation list. A figure the engine never produced is
+ * a hallucinated clinical observation wherever it appears, and the four pattern
+ * summaries plus the next steps are the sections a member reads first, so a
+ * verifier that only swept the recommendation list left the largest surfaces of
+ * the Snapshot unchecked while appearing to enforce grounding.
+=======
  * claim, rewrite it, or block the response. A recommendation with no retrieved
  * citation id is removed. If that empties the list and this request did retrieve
  * evidence, the list is rewritten from those cards. SCI still blocks when nothing
  * citable remains.
+>>>>>>> origin/feature/for-main
  */
 
 export interface VerificationResult {
@@ -59,6 +73,88 @@ function toCitation(item: RetrievedEvidence): GatewayCitation {
 function containsUntraceableNumber(text: string, permitted: Set<string>): boolean {
   const tokens = text.match(NUMERIC_TOKEN_PATTERN) ?? [];
   return tokens.some((token) => !permitted.has(token));
+}
+
+/**
+ * The four pattern sections, with the deterministic score each one describes.
+ *
+ * The labels and score keys match `fallbackService` exactly, so a section
+ * replaced here reads identically to the same section in the whole-payload
+ * fallback. A member must not be able to tell which layer discarded the model's
+ * wording, because that difference would itself imply something about their data.
+ */
+const PATTERN_FIELDS: ReadonlyArray<{
+  key: "symptomPattern" | "moodPattern" | "sleepPattern" | "energyPattern";
+  label: string;
+  scoreKey: string;
+}> = [
+    { key: "symptomPattern", label: "your symptom pattern", scoreKey: "symptomBurdenScore" },
+    { key: "moodPattern", label: "your emotional wellbeing", scoreKey: "emotionalBalanceScore" },
+    { key: "sleepPattern", label: "your sleep experience", scoreKey: "sleepDisturbanceScore" },
+    { key: "energyPattern", label: "your energy levels", scoreKey: "vitalityIndex" },
+  ];
+
+/**
+ * Every model-authored string in a pattern block, not just the summary.
+ *
+ * `reportedAreas` and `impact` are model-authored too, and a figure can hide in
+ * either. They are short enough that one ungrounded figure invalidates the whole
+ * block, which is why the block is replaced rather than patched.
+ */
+function patternBlockIsGrounded(
+  block: GatewayPatternBlock,
+  permitted: Set<string>
+): boolean {
+  return !containsUntraceableNumber(
+    `${block.summary} ${block.impact ?? ""} ${block.reportedAreas.join(" ")}`,
+    permitted
+  );
+}
+
+/**
+ * Rewrites the pattern sections the model filled with untraceable figures.
+ *
+ * The summary is a required section — SCI blocks a Snapshot without all four —
+ * so an ungrounded figure cannot simply be deleted from it, and excising the
+ * number alone leaves broken prose ("improved by % over the last month") that
+ * still reads as a claim. The section is therefore replaced wholesale with the
+ * approved deterministic description of the same verified score, which is the
+ * spec's "rewrite it" response.
+ *
+ * Only the affected section is replaced. The other three keep the model's
+ * wording, so one hallucinated figure costs one section rather than the Snapshot.
+ */
+function repairPatternBlocks(
+  payload: PersonalSnapshotModelOutput,
+  context: GatewayContext,
+  permitted: Set<string>,
+  findings: SciFinding[]
+): Record<string, GatewayPatternBlock> {
+  const repaired: Record<string, GatewayPatternBlock> = {};
+
+  for (const field of PATTERN_FIELDS) {
+    const original = payload[field.key];
+
+    if (patternBlockIsGrounded(original, permitted)) {
+      repaired[field.key] = original;
+      continue;
+    }
+
+    findings.push({
+      check: "numeric_grounding",
+      severity: "warn",
+      message: `Replaced the "${field.key}" section: the model stated a figure that does not appear in the approved context.`,
+      path: `${field.key}.summary`,
+    });
+
+    repaired[field.key] = buildApprovedPatternBlock(
+      field.label,
+      finiteScore(context.deterministic.metrics[field.scoreKey]),
+      context.reportedAreas
+    );
+  }
+
+  return repaired;
 }
 
 export function verifyAndRepair(
@@ -106,7 +202,6 @@ export function verifyAndRepair(
 
   if ("personalizedRecommendations" in payload) {
     const kept: GatewayRecommendation[] = [];
-    let removedUnsupported = 0;
     let removedUngrounded = 0;
 
     for (const recommendation of payload.personalizedRecommendations) {
@@ -122,7 +217,6 @@ export function verifyAndRepair(
       }
 
       if (valid.length === 0) {
-        removedUnsupported += 1;
         findings.push({
           check: "evidence_support",
           severity: "warn",
@@ -225,11 +319,30 @@ export function verifyAndRepair(
       });
     }
 
+    // Next steps are removable in the same way lifestyle observations are. They
+    // are actions rather than observations, so an ungrounded figure in one ("log
+    // 87% more") is a fabricated target rather than a badly-worded remark.
+    const groundedNextSteps = nextSteps.filter(
+      (step) => !containsUntraceableNumber(step.action, permitted)
+    );
+
+    if (groundedNextSteps.length < nextSteps.length) {
+      findings.push({
+        check: "numeric_grounding",
+        severity: "warn",
+        message: "Removed next step(s) containing ungrounded figures.",
+        path: "suggestedNextSteps",
+      });
+    }
+
+    const patternBlocks = repairPatternBlocks(payload, context, permitted, findings);
+
     const repaired: PersonalSnapshotModelOutput = {
       ...payload,
+      ...patternBlocks,
       lifestyleObservations: trimmedObservations,
       personalizedRecommendations: kept.slice(0, AI_GATEWAY_CONFIG.limits.maxRecommendations),
-      suggestedNextSteps: nextSteps,
+      suggestedNextSteps: groundedNextSteps,
       partnerSupportOpportunity: partnerSupport,
     };
 
@@ -238,9 +351,11 @@ export function verifyAndRepair(
       citations: buildCitations(context, collectUsedCitationIds(repaired)),
       usedCitationIds: collectUsedCitationIds(repaired),
       findings,
-      unsupportable:
-        repaired.personalizedRecommendations.length === 0 ||
-        (removedUnsupported > 0 && repaired.personalizedRecommendations.length === 0),
+      // The recommendation list is the only claim-bearing section the spec
+      // requires to be evidence-backed, so "nothing survived" means that list is
+      // empty. The pattern sections are always repairable from the deterministic
+      // context and therefore never make a response unsupportable on their own.
+      unsupportable: repaired.personalizedRecommendations.length === 0,
     };
   }
 

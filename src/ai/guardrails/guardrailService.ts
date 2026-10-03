@@ -25,9 +25,26 @@ import type { GatewayContext, SciFinding } from "../types/index.js";
  * Guardrails are deterministic software. They never ask a model what is safe.
  */
 
+/**
+ * Why a pre-generation check refused the request.
+ *
+ * Structured rather than inferred. The Gateway has to answer "which client
+ * message, and which status code?" from this, and deriving that by searching
+ * finding messages for words like "consent" is how a missing consent grant and a
+ * missing evidence catalog both came back as the same generic "could not
+ * complete this safely" — the exact matching-by-prose failure the request
+ * validator's own docblock says it was written to eliminate.
+ */
+export type PreGenerationBlockReason =
+  | "consent_missing"
+  | "no_evidence"
+  | "unapproved_evidence";
+
 export interface PreGenerationVerdict {
   allowed: boolean;
   findings: SciFinding[];
+  /** The first blocking reason, in the order they are evaluated. Null when allowed. */
+  reason: PreGenerationBlockReason | null;
 }
 
 export interface OutputGuardrailResult {
@@ -67,8 +84,10 @@ export function collectPermittedNumbers(context: GatewayContext): Set<string> {
 
 export function runPreGenerationGuardrails(context: GatewayContext): PreGenerationVerdict {
   const findings: SciFinding[] = [];
+  const reasons: PreGenerationBlockReason[] = [];
 
   if (context.consent.status !== "granted") {
+    reasons.push("consent_missing");
     findings.push({
       check: "evidence_support",
       severity: "block",
@@ -77,6 +96,7 @@ export function runPreGenerationGuardrails(context: GatewayContext): PreGenerati
   }
 
   if (context.evidence.length === 0) {
+    reasons.push("no_evidence");
     findings.push({
       check: "evidence_support",
       severity: "block",
@@ -88,6 +108,7 @@ export function runPreGenerationGuardrails(context: GatewayContext): PreGenerati
     (item) => !AI_GATEWAY_CONFIG.evidence.allowedStatuses.includes(item.record.status)
   );
   if (unapproved.length > 0) {
+    reasons.push("unapproved_evidence");
     findings.push({
       check: "citation_validity",
       severity: "block",
@@ -96,8 +117,11 @@ export function runPreGenerationGuardrails(context: GatewayContext): PreGenerati
   }
 
   return {
-    allowed: findings.every((finding) => finding.severity !== "block"),
+    allowed: reasons.length === 0,
     findings,
+    // Consent first: it is the most fundamental refusal, and reporting "no
+    // evidence" to a member who has not consented would misdescribe the problem.
+    reason: reasons[0] ?? null,
   };
 }
 

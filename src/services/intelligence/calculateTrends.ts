@@ -15,6 +15,24 @@ import type {
 export const TREND_CHANGE_THRESHOLD_PERCENT = 10;
 
 /**
+ * Smallest prior average a percentage change may be computed from.
+ *
+ * A ratio against a baseline of zero is undefined, and dividing by an arbitrary
+ * epsilon manufactures a spectacularly wrong number rather than a merely
+ * imprecise one: a move from 0 to 3 under the old fixed epsilon floor reported
+ * "+600%", and that figure was then injected into the deterministic metric bag,
+ * which makes it explicitly stateable by the model and presentable on the
+ * member's own dashboard.
+ *
+ * Below this baseline the percentage is reported as `null` and only the
+ * direction is stated. Direction is unaffected: `classifyTrend` still compares
+ * against the floored denominator, so a genuine rise from zero is still
+ * classified `increasing` — it simply is not dressed up with a figure the data
+ * cannot support.
+ */
+export const MIN_PERCENT_CHANGE_BASELINE = 0.5;
+
+/**
  * Fallback sufficiency threshold.
  *
  * `AI_GATEWAY_CONFIG.trendEngine.minimumDaysForPatterns` is the authority; this
@@ -28,9 +46,25 @@ function mean(values: number[]): number | null {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+/**
+ * Relative change against a floored denominator.
+ *
+ * Used only to classify a direction, never to produce a reported figure: the
+ * floor keeps a near-zero baseline from collapsing the ratio, but any number
+ * derived from it is a classification aid rather than a measurement.
+ */
+function ratioChange(recent: number, prior: number): number {
+  const denominator = Math.max(Math.abs(prior), MIN_PERCENT_CHANGE_BASELINE);
+  return ((recent - prior) / denominator) * 100;
+}
+
+/**
+ * The percentage change to publish, or `null` when the baseline is too small for
+ * one to mean anything.
+ */
 function percentChange(recent: number, prior: number): number | null {
-  const denominator = Math.max(Math.abs(prior), 0.5);
-  return Math.round(((recent - prior) / denominator) * 100);
+  if (Math.abs(prior) < MIN_PERCENT_CHANGE_BASELINE) return null;
+  return Math.round(ratioChange(recent, prior));
 }
 
 function classifyTrend(changePercent: number | null): TrendDirection {
@@ -91,12 +125,17 @@ function buildDomainTrend(
   const recentAverage = mean(recent);
   const priorAverage = mean(prior);
   const sufficientData = recent.length >= 1 && prior.length >= 1;
-  const changePercent =
-    sufficientData && recentAverage !== null && priorAverage !== null
-      ? percentChange(recentAverage, priorAverage)
-      : null;
+  const hasBothAverages = sufficientData && recentAverage !== null && priorAverage !== null;
+  const changePercent = hasBothAverages
+    ? percentChange(recentAverage as number, priorAverage as number)
+    : null;
   return {
-    trend: classifyTrend(changePercent),
+    // Classified from the floored ratio rather than from the published figure, so
+    // a move away from a near-zero baseline is still reported as a direction
+    // instead of being flattened to "stable" by the missing percentage.
+    trend: hasBothAverages
+      ? classifyTrend(ratioChange(recentAverage as number, priorAverage as number))
+      : "stable",
     changePercent,
     recentAverage:
       recentAverage !== null ? Math.round(recentAverage * 10) / 10 : null,
@@ -177,7 +216,11 @@ function buildPatternIndicators(
 export function calculateMemberTrends(
   input: CalculateTrendsInput,
 ): TrendEngineOutput {
-  const today = input.today ?? new Date();
+  // Copied, not normalised in place. The engine is a pure function over its
+  // input, and normalising the caller's own Date object mutated it — a caller
+  // that reused one `today` across several calculations, or logged it, would
+  // silently observe a shifted timestamp it never asked for.
+  const today = new Date((input.today ?? new Date()).getTime());
   today.setUTCHours(12, 0, 0, 0);
   const rangeDays = input.rangeDays;
 

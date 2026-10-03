@@ -238,3 +238,45 @@ export function listApprovedEvidence(): EvidenceRecord[] {
       isCitableRecord(record)
   );
 }
+
+/**
+ * Clinician sign-off state of the catalog.
+ *
+ * `status: "approved"` and `clinicianReview: "signed"` are different facts, and
+ * the seeded catalog is deliberately the first without the second: every record
+ * carries `reviewedBy: "pending-named-clinician"` and `clinicianReview:
+ * "pending"`. Those records are citable, because refusing to cite anything would
+ * leave the product unable to produce a grounded Snapshot at all, but they are
+ * *not* clinician-approved and nothing may describe them that way.
+ *
+ * This exists so that gap is reported rather than assumed. It is surfaced on the
+ * admin health endpoint, so "the catalog is not yet clinician-reviewed" is a
+ * fact an operator can see instead of a claim they have to remember not to
+ * make. It cannot be closed by code: a named reviewer has to replace both
+ * placeholder fields in `approvedEvidence.ts`.
+ */
+export interface ClinicianReviewSummary {
+  catalogVersion: string;
+  total: number;
+  citable: number;
+  clinicianSigned: number;
+  pendingClinicianReview: number;
+  /** False while any citable record is unsigned. */
+  fullyClinicianReviewed: boolean;
+  pendingCitationIds: string[];
+}
+
+export function clinicianReviewSummary(): ClinicianReviewSummary {
+  const citable = listApprovedEvidence();
+  const pending = citable.filter((record) => record.clinicianReview !== "signed");
+
+  return {
+    catalogVersion: EVIDENCE_CATALOG_VERSION,
+    total: APPROVED_EVIDENCE.length,
+    citable: citable.length,
+    clinicianSigned: citable.length - pending.length,
+    pendingClinicianReview: pending.length,
+    fullyClinicianReviewed: pending.length === 0,
+    pendingCitationIds: pending.map((record) => record.citationId),
+  };
+}
