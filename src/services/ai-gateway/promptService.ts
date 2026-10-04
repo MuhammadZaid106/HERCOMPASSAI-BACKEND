@@ -54,6 +54,11 @@ function formatEvidenceBlock(evidence: RetrievedEvidence[]): string {
     .join("\n\n---\n\n");
 }
 
+function textSignal(context: GatewayContext, key: string): string {
+  const value = context.deterministic.metrics[key];
+  return typeof value === "string" ? value : "";
+}
+
 function formatList(values: string[], emptyLabel: string): string {
   if (values.length === 0) return emptyLabel;
   return values.map((value) => `- ${value}`).join("\n");
@@ -145,6 +150,9 @@ export function assemblePrompt(
     GOALS: formatList(context.goals, "[none supplied]"),
     PARTNER_SUPPORT: context.partnerScope.length > 0 ? context.partnerScope.join(", ") : "not indicated",
     AUTHORIZED_SCOPE: formatList(context.partnerScope, "[none authorized]"),
+    MEMBER_FIRST_NAME: textSignal(context, "memberFirstName"),
+    PARTNER_TASK: textSignal(context, "partnerTask") || "Write the weekly partner digest.",
+    PREMIUM_SECTION: textSignal(context, "premiumSection") || "omit",
     AUTHORIZED_SIGNALS: formatMetrics(context),
     PARTNER_PREFERENCES: formatList([], "[none supplied]"),
     EVIDENCE_BLOCK: formatEvidenceBlock(context.evidence),

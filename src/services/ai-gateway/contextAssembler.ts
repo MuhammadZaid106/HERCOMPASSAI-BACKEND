@@ -2,7 +2,8 @@ import { AI_GATEWAY_CONFIG, getFeaturePolicy } from "../../config/aiGateway.js";
 import { OnboardingProfile, User } from "../../models/index.js";
 import { loadMemberTrendEngineOutput } from "../intelligence/memberTrendService.js";
 import type { TrendEngineOutput } from "../intelligence/trendTypes.js";
-import { retrieveEvidence } from "./evidenceService.js";
+import { getEvidenceById } from "../../ai/evidence/approvedEvidence.js";
+import { isCitableRecord, retrieveEvidence } from "./evidenceService.js";
 import { logger } from "../../utils/logger.js";
 import type {
   ConsentScope,
@@ -46,6 +47,8 @@ export interface AssembleContextParams {
   authorizedSignals?: Record<string, string | number | boolean | null>;
   /** Trend scalars calculated from daily logs. The model interprets them. */
   logSignals?: Record<string, string | number | boolean>;
+  /** When set, retrieval is replaced by these approved cards and nothing else. */
+  pinnedEvidenceIds?: string[];
 }
 
 const FOCUS_HINTS: Record<string, string[]> = {
@@ -296,6 +299,25 @@ function collectGoals(profile: OnboardingProfile): string[] {
   return Array.from(goals).slice(0, 8);
 }
 
+function pinEvidence(
+  retrieved: ReturnType<typeof retrieveEvidence>,
+  pinnedEvidenceIds: string[] | undefined,
+): ReturnType<typeof retrieveEvidence> {
+  if (!pinnedEvidenceIds || pinnedEvidenceIds.length === 0) return retrieved;
+  const items = pinnedEvidenceIds.flatMap((evidenceId) => {
+    const record = getEvidenceById(evidenceId);
+    if (!record) return [];
+    if (!AI_GATEWAY_CONFIG.evidence.allowedStatuses.includes(record.status)) return [];
+    if (!isCitableRecord(record)) return [];
+    return [{ record, relevanceScore: 1, matchedKeywords: [] }];
+  });
+  return {
+    items,
+    evidenceVersion: retrieved.evidenceVersion,
+    insufficientEvidence: items.length === 0,
+  };
+}
+
 export function partnerSupportIsRelevant(profile: OnboardingProfile): boolean {
   const interest = profile.partnerSupportInterest;
   return interest === "yes" || interest === "maybe";
@@ -352,12 +374,13 @@ export function buildContext(params: AssembleContextParams): GatewayContext {
     topicHints.push(...FOCUS_HINTS.symptom_pattern);
   }
 
-  const retrieval = retrieveEvidence({
+  const retrieved = retrieveEvidence({
     focusArea,
     goals: [...goals, ...partnerScope],
     reportedAreas,
     topicHints: Array.from(new Set(topicHints)),
   });
+  const retrieval = pinEvidence(retrieved, params.pinnedEvidenceIds);
 
   if (retrieval.insufficientEvidence) {
     contextLog.warn(

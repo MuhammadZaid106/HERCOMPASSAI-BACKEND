@@ -1,5 +1,6 @@
 import { OnboardingProfile, PartnerInvite, User } from "../../models/index.js";
 import { resolveMemberPlan } from "../member/planCatalog.js";
+import { partnerPlanMessage } from "./partnerAccess.js";
 
 const SHARE_SCOPES = ["general_support", "shared_activities", "communication_guidance"] as const;
 
@@ -21,6 +22,8 @@ export interface PartnerHomeOn {
   digestIncluded: boolean;
   academyIncluded: boolean;
   supportIncluded: boolean;
+  /** Set when their plan does not include the partner guides. */
+  planMessage: string | null;
 }
 
 export type PartnerHomeView = PartnerHomeOff | PartnerHomeOn;
@@ -68,20 +71,23 @@ export function presentPartnerHome(input: PartnerHomeInput): PartnerHomeView {
 
   const scopes = SHARE_SCOPES.filter((scope) => input.scopes.includes(scope));
   const plan = resolveMemberPlan(input.memberPlan);
+  const guidesIncluded = plan === "plus" || plan === "premium";
+  const memberFirstName = firstName(input.memberName);
 
   return {
     connected: true,
     access: "on",
-    memberFirstName: firstName(input.memberName),
+    memberFirstName,
     memberEmail: input.memberEmail?.trim() ?? "",
     joinedAt: input.joinedAt ?? "",
     scopes: [...scopes],
     generalSupport: scopes.includes("general_support"),
     sharedActivities: scopes.includes("shared_activities"),
     communicationGuidance: scopes.includes("communication_guidance"),
-    digestIncluded: plan === "plus" || plan === "premium",
-    academyIncluded: plan === "plus" || plan === "premium",
-    supportIncluded: plan === "plus" || plan === "premium",
+    digestIncluded: guidesIncluded,
+    academyIncluded: guidesIncluded,
+    supportIncluded: guidesIncluded,
+    planMessage: guidesIncluded ? null : partnerPlanMessage(memberFirstName),
   };
 }
 

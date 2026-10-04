@@ -58,6 +58,8 @@ export const partnerDigestModelOutputSchema = z.object({
   whatToAvoid: z.array(trimmedText.max(300)).max(6).default([]),
   oneSimpleSupportAction: trimmedText.max(300),
   citationIds: z.array(z.string().trim().min(1).max(64)).max(6).default([]),
+  /** Premium closer look. Omitted or null on every other plan. */
+  advancedObservation: z.string().trim().min(1).max(800).nullable().optional(),
 });
 
 export type PersonalSnapshotModelOutput = z.infer<typeof personalSnapshotModelOutputSchema>;

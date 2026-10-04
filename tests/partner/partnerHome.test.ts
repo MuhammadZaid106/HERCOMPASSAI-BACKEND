@@ -39,6 +39,7 @@ describe("partner home", () => {
     assert.equal(home.sharedActivities, false);
     assert.equal(home.communicationGuidance, true);
     assert.equal(home.digestIncluded, false);
+    assert.equal(home.planMessage, "Maria needs HerCompass Plus or Premium to open this.");
     assert.equal(home.memberEmail, "maria@example.com");
     assert.equal(home.joinedAt, "2026-10-03T00:00:00.000Z");
     const serialized = JSON.stringify(home);

@@ -365,6 +365,7 @@ export function verifyAndRepair(
   const narrative = [
     payload.whatSheMayBeExperiencing,
     payload.oneSimpleSupportAction,
+    ...(typeof payload.advancedObservation === "string" ? [payload.advancedObservation] : []),
     ...payload.whatMayHelp,
     ...payload.howToCommunicate,
     ...payload.whatToAvoid,

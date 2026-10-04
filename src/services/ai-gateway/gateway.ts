@@ -87,6 +87,8 @@ export interface GatewayInvocation {
   partnerPreferences?: string[];
   authorizedSignals?: Record<string, string | number | boolean | null>;
   logSignals?: Record<string, string | number | boolean>;
+  /** When set, the model sees only these approved evidence cards. */
+  pinnedEvidenceIds?: string[];
 }
 
 interface ProvenanceDraft {
@@ -481,6 +483,7 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
     partnerPreferences: invocation.partnerPreferences,
     authorizedSignals: invocation.authorizedSignals,
     logSignals: invocation.logSignals,
+    pinnedEvidenceIds: invocation.pinnedEvidenceIds,
   });
 
   draft.evidenceVersion = context.evidenceVersion;

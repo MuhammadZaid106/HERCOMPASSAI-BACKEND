@@ -1,7 +1,12 @@
 import { getEvidenceById } from "../../ai/evidence/approvedEvidence.js";
-import { ACTIVITY_SUGGESTIONS, type ActivitySuggestion } from "./activityCatalog.js";
+import type { OnboardingProfile } from "../../models/OnboardingProfile.js";
 import type { SavedDigestSections } from "../../models/PartnerDigest.js";
+import { ACTIVITY_SUGGESTIONS, type ActivitySuggestion } from "./activityCatalog.js";
 import type { ShareScope } from "./partnerAccess.js";
+
+/** Shown when the safety pass blocks a personalised wording. The saved guide stays. */
+export const PARTNER_SAFE_LINE =
+  "A personalised note is not available right now. The guide below stays general, and your saved information is unchanged.";
 
 /**
  * The only member fields a partner guide may carry.
@@ -25,10 +30,111 @@ export function buildPartnerContext(input: {
   authorizedScope: ShareScope[];
   evidenceIds: string[];
 }): PartnerContext {
+  return partnerModelPayload(input);
+}
+
+/**
+ * The only object allowed to approach the model.
+ * Extra fields on the input, including logs and another member's id, are dropped.
+ */
+export interface PartnerModelPayload {
+  memberFirstName: string;
+  authorizedScope: ShareScope[];
+  evidenceIds: string[];
+}
+
+export function partnerModelPayload(input: {
+  memberFirstName: string;
+  authorizedScope: readonly ShareScope[];
+  evidenceIds: readonly string[];
+}): PartnerModelPayload {
   return {
     memberFirstName: input.memberFirstName,
     authorizedScope: [...input.authorizedScope],
     evidenceIds: [...input.evidenceIds],
+  };
+}
+
+export function evidenceIdsForTopics(scopes: readonly ShareScope[]): string[] {
+  return [
+    ...(scopes.includes("general_support") ? ["ev-nams-001"] : []),
+    ...(scopes.includes("communication_guidance") ? ["ev-act-012"] : []),
+    ...(scopes.includes("shared_activities") ? ["ev-mbsr-011"] : []),
+  ];
+}
+
+/** Current sharing decides which saved lines are returned. A topic that is off contributes none. */
+export function applyTopicFilter(
+  sections: SavedDigestSections,
+  scopes: readonly ShareScope[],
+  advanced: boolean,
+): SavedDigestSections {
+  const support = scopes.includes("general_support");
+  const talk = scopes.includes("communication_guidance");
+  return {
+    ...sections,
+    whatSheMayBeExperiencing: support ? sections.whatSheMayBeExperiencing : null,
+    whatMayHelp: support ? sections.whatMayHelp : [],
+    howToCommunicate: talk ? sections.howToCommunicate : [],
+    whatToAvoid: talk ? sections.whatToAvoid : [],
+    oneSimpleSupportAction: support || talk ? sections.oneSimpleSupportAction : null,
+    advancedObservation: advanced && (support || talk) ? (sections.advancedObservation ?? null) : null,
+  };
+}
+
+export function supportLines(sections: SavedDigestSections, scopes: readonly ShareScope[]): string[] {
+  if (!scopes.includes("general_support")) return [];
+  if (sections.whatMayHelp.length > 0) return sections.whatMayHelp;
+  return composeDigest(
+    buildPartnerContext({ memberFirstName: "", authorizedScope: [...scopes], evidenceIds: [] }),
+  ).whatMayHelp;
+}
+
+export function conversationLines(sections: SavedDigestSections, scopes: readonly ShareScope[]): string[] {
+  if (!scopes.includes("communication_guidance")) return [];
+  if (sections.howToCommunicate.length > 0) return sections.howToCommunicate;
+  return composeDigest(
+    buildPartnerContext({ memberFirstName: "", authorizedScope: [...scopes], evidenceIds: [] }),
+  ).howToCommunicate;
+}
+
+/**
+ * Gateway request built only from the partner payload.
+ * Trends, log signals, and the member id are not included.
+ */
+export function buildPartnerGatewayRequest(input: {
+  context: PartnerContext;
+  partnerUserId: string;
+  partnerTask: string;
+  premium: boolean;
+}) {
+  const payload = partnerModelPayload(input.context);
+  return {
+    feature: "partner_digest" as const,
+    userId: input.partnerUserId,
+    role: "partner" as const,
+    consent: {
+      consentId: "partner-sharing",
+      consentType: "partner_sharing",
+      consentVersion: "1.0",
+      status: "granted" as const,
+    },
+    source: {
+      profile: { deterministicScores: {} } as OnboardingProfile,
+      userName: payload.memberFirstName,
+      trends: null,
+    },
+    locale: "en-GB" as const,
+    partnerScope: [...payload.authorizedScope],
+    authorizedSignals: {
+      memberFirstName: payload.memberFirstName,
+      supportFocusArea: payload.authorizedScope[0] ?? "general_support",
+      sharedScopeCount: payload.authorizedScope.length,
+      partnerTask: input.partnerTask,
+      premiumSection: input.premium ? "include" : "omit",
+    },
+    logSignals: {} as Record<string, string | number | boolean>,
+    pinnedEvidenceIds: [...payload.evidenceIds],
   };
 }
 

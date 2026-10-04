@@ -5,7 +5,15 @@ import { resolveMemberPlan, type MemberPlanId } from "../member/planCatalog.js";
 export const SHARE_SCOPES = ["general_support", "shared_activities", "communication_guidance"] as const;
 export type ShareScope = (typeof SHARE_SCOPES)[number];
 
-export const PLUS_LINE = "Go deeper with HerCompass Plus.";
+/**
+ * Partner-facing plan note.
+ * The signed-in badge is the partner's own plan. These guides follow the member.
+ */
+export function partnerPlanMessage(memberFirstName: string): string {
+  const name = memberFirstName.trim();
+  const who = name.length > 0 && name.toLowerCase() !== "your partner" ? name : "The member you support";
+  return `${who} needs HerCompass Plus or Premium to open this.`;
+}
 
 export interface PartnerGateInput {
   role: string | undefined;
@@ -27,6 +35,7 @@ export interface PartnerGrant {
   digestIncluded: boolean;
   academyIncluded: boolean;
   supportIncluded: boolean;
+  advancedIncluded: boolean;
 }
 
 export interface PartnerRefusal {
@@ -92,7 +101,30 @@ export function decidePartnerGate(input: PartnerGateInput): PartnerGate {
     digestIncluded: features.partner_digest,
     academyIncluded: features.academy,
     supportIncluded: features.partner_support,
+    advancedIncluded: features.advanced_partner_intelligence,
   };
+}
+
+/**
+ * A partner may read only the member they are connected to, and only a topic
+ * that member left on. A refusal carries no name and no guide.
+ */
+export function assessPartnerRequest(input: {
+  role: string | undefined;
+  requestedMemberUserId: string | null;
+  connectedMemberUserId: string | null;
+  topic: string;
+  topicsAllowed: ShareScope[];
+  memberFirstName: string;
+}): { result: "allowed" | "refused"; memberFirstName: string | null; guide: null } {
+  const knownTopic = (SHARE_SCOPES as readonly string[]).includes(input.topic);
+  const topicOff = knownTopic && !input.topicsAllowed.includes(input.topic as ShareScope);
+  const otherMember =
+    input.requestedMemberUserId !== null && input.requestedMemberUserId !== input.connectedMemberUserId;
+  if (input.role !== "partner" || otherMember || topicOff || !input.connectedMemberUserId) {
+    return { result: "refused", memberFirstName: null, guide: null };
+  }
+  return { result: "allowed", memberFirstName: input.memberFirstName, guide: null };
 }
 
 export function topicAllowed(gate: PartnerGrant, topic: ShareScope): boolean {

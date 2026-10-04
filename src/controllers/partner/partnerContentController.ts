@@ -4,20 +4,20 @@ import { PartnerLessonProgress } from "../../models/PartnerLessonProgress.js";
 import { getEvidenceById } from "../../ai/evidence/approvedEvidence.js";
 import { ACADEMY_LESSONS, lessonBySlug } from "../../services/partner/academyCatalog.js";
 import {
-  PLUS_LINE,
+  assessPartnerRequest,
   loadPartnerGate,
-  topicAllowed,
+  partnerPlanMessage,
   type PartnerGrant,
 } from "../../services/partner/partnerAccess.js";
 import { writePartnerAudit, type PartnerAuditAction } from "../../services/partner/partnerAudit.js";
 import {
   activityGuide,
   buildPartnerContext,
-  conversationGuide,
+  conversationLines,
   evidenceSources,
-  supportGuide,
+  supportLines,
 } from "../../services/partner/partnerContext.js";
-import { loadWeeklyDigest } from "../../services/partner/partnerDigestService.js";
+import { loadLessonNote, loadWeeklyDigest } from "../../services/partner/partnerDigestService.js";
 import { sendError, sendSuccess } from "../../utils/apiResponse.js";
 
 async function openGate(req: AuthenticatedRequest, res: Response, action: PartnerAuditAction, topic: string) {
@@ -41,23 +41,37 @@ async function openGate(req: AuthenticatedRequest, res: Response, action: Partne
   return { partnerUserId: req.user.userId, gate };
 }
 
-function refuseTopic(
+function planNote(gate: PartnerGrant): string {
+  return partnerPlanMessage(gate.memberFirstName);
+}
+
+async function rejectIfRefused(
   res: Response,
   partnerUserId: string,
+  role: string | undefined,
   gate: PartnerGrant,
   action: PartnerAuditAction,
   topic: string,
-) {
-  return writePartnerAudit({
+): Promise<boolean> {
+  const decision = assessPartnerRequest({
+    role,
+    requestedMemberUserId: gate.memberUserId,
+    connectedMemberUserId: gate.memberUserId,
+    topic,
+    topicsAllowed: gate.topicsAllowed,
+    memberFirstName: gate.memberFirstName,
+  });
+  if (decision.result !== "refused") return false;
+  await writePartnerAudit({
     partnerUserId,
     memberUserId: gate.memberUserId,
     action,
     topicAsked: topic,
     topicsAllowed: gate.topicsAllowed,
     result: "refused",
-  }).then(() => {
-    sendError(res, 403, "That topic is not shared.");
   });
+  sendError(res, 403, "That topic is not shared.");
+  return true;
 }
 
 export async function getPartnerActivities(
@@ -68,8 +82,7 @@ export async function getPartnerActivities(
   try {
     const opened = await openGate(req, res, "activities_read", "shared_activities");
     if (!opened) return;
-    if (!topicAllowed(opened.gate, "shared_activities")) {
-      await refuseTopic(res, opened.partnerUserId, opened.gate, "activities_read", "shared_activities");
+    if (await rejectIfRefused(res, opened.partnerUserId, req.user?.role, opened.gate, "activities_read", "shared_activities")) {
       return;
     }
     const context = buildPartnerContext({
@@ -115,7 +128,7 @@ export async function getPartnerAcademy(
         topicsAllowed: opened.gate.topicsAllowed,
         result: "empty",
       });
-      sendSuccess(res, 200, PLUS_LINE, { included: false, plusMessage: PLUS_LINE, lessons: [] });
+      sendSuccess(res, 200, planNote(opened.gate), { included: false, plusMessage: planNote(opened.gate), lessons: [] });
       return;
     }
     const progress = await PartnerLessonProgress.findAll({
@@ -156,7 +169,7 @@ export async function getPartnerLesson(
     const opened = await openGate(req, res, "lesson_read", slug);
     if (!opened) return;
     if (!opened.gate.academyIncluded) {
-      sendSuccess(res, 200, PLUS_LINE, { included: false, plusMessage: PLUS_LINE });
+      sendSuccess(res, 200, planNote(opened.gate), { included: false, plusMessage: planNote(opened.gate) });
       return;
     }
     const lesson = lessonBySlug(slug);
@@ -166,6 +179,15 @@ export async function getPartnerLesson(
     }
     const progress = await PartnerLessonProgress.findOne({
       where: { partnerUserId: opened.partnerUserId, lessonSlug: lesson.slug },
+    });
+    const note = await loadLessonNote({
+      memberUserId: opened.gate.memberUserId,
+      partnerUserId: opened.partnerUserId,
+      memberFirstName: opened.gate.memberFirstName,
+      topicsAllowed: opened.gate.topicsAllowed,
+      advanced: opened.gate.advancedIncluded,
+      lessonSlug: lesson.slug,
+      evidenceId: lesson.evidenceId,
     });
     await writePartnerAudit({
       partnerUserId: opened.partnerUserId,
@@ -181,6 +203,8 @@ export async function getPartnerLesson(
         ...lesson,
         sourceName: getEvidenceById(lesson.evidenceId)?.sourceName ?? null,
         read: Boolean(progress),
+        personalizedParagraph: note.paragraph,
+        safeLine: note.safeLine,
       },
     });
   } catch (error) {
@@ -198,7 +222,7 @@ export async function markPartnerLessonRead(
     const opened = await openGate(req, res, "lesson_read", slug);
     if (!opened) return;
     if (!opened.gate.academyIncluded) {
-      sendError(res, 403, PLUS_LINE);
+      sendError(res, 403, planNote(opened.gate));
       return;
     }
     const lesson = lessonBySlug(slug);
@@ -225,20 +249,19 @@ export async function getPartnerSupport(
     const opened = await openGate(req, res, "support_read", "general_support");
     if (!opened) return;
     if (!opened.gate.supportIncluded) {
-      sendSuccess(res, 200, PLUS_LINE, { included: false, plusMessage: PLUS_LINE });
+      sendSuccess(res, 200, planNote(opened.gate), { included: false, plusMessage: planNote(opened.gate) });
       return;
     }
-    if (!topicAllowed(opened.gate, "general_support")) {
-      await refuseTopic(res, opened.partnerUserId, opened.gate, "support_read", "general_support");
+    if (await rejectIfRefused(res, opened.partnerUserId, req.user?.role, opened.gate, "support_read", "general_support")) {
       return;
     }
-    const guide = supportGuide(
-      buildPartnerContext({
-        memberFirstName: opened.gate.memberFirstName,
-        authorizedScope: opened.gate.topicsAllowed,
-        evidenceIds: [],
-      }),
-    );
+    const digest = await loadWeeklyDigest({
+      memberUserId: opened.gate.memberUserId,
+      partnerUserId: opened.partnerUserId,
+      memberFirstName: opened.gate.memberFirstName,
+      topicsAllowed: opened.gate.topicsAllowed,
+      advanced: opened.gate.advancedIncluded,
+    });
     await writePartnerAudit({
       partnerUserId: opened.partnerUserId,
       memberUserId: opened.gate.memberUserId,
@@ -250,8 +273,9 @@ export async function getPartnerSupport(
     sendSuccess(res, 200, "Support ideas", {
       included: true,
       memberFirstName: opened.gate.memberFirstName,
-      lines: guide?.lines ?? [],
-      sources: evidenceSources(guide?.evidenceIds ?? []),
+      lines: supportLines(digest.sections, opened.gate.topicsAllowed),
+      sources: evidenceSources(digest.sections.evidenceIds),
+      safeLine: digest.safeLine,
     });
   } catch (error) {
     next(error);
@@ -267,20 +291,28 @@ export async function getPartnerConversation(
     const opened = await openGate(req, res, "conversation_read", "communication_guidance");
     if (!opened) return;
     if (!opened.gate.supportIncluded) {
-      sendSuccess(res, 200, PLUS_LINE, { included: false, plusMessage: PLUS_LINE });
+      sendSuccess(res, 200, planNote(opened.gate), { included: false, plusMessage: planNote(opened.gate) });
       return;
     }
-    if (!topicAllowed(opened.gate, "communication_guidance")) {
-      await refuseTopic(res, opened.partnerUserId, opened.gate, "conversation_read", "communication_guidance");
+    if (
+      await rejectIfRefused(
+        res,
+        opened.partnerUserId,
+        req.user?.role,
+        opened.gate,
+        "conversation_read",
+        "communication_guidance",
+      )
+    ) {
       return;
     }
-    const guide = conversationGuide(
-      buildPartnerContext({
-        memberFirstName: opened.gate.memberFirstName,
-        authorizedScope: opened.gate.topicsAllowed,
-        evidenceIds: [],
-      }),
-    );
+    const digest = await loadWeeklyDigest({
+      memberUserId: opened.gate.memberUserId,
+      partnerUserId: opened.partnerUserId,
+      memberFirstName: opened.gate.memberFirstName,
+      topicsAllowed: opened.gate.topicsAllowed,
+      advanced: opened.gate.advancedIncluded,
+    });
     await writePartnerAudit({
       partnerUserId: opened.partnerUserId,
       memberUserId: opened.gate.memberUserId,
@@ -292,8 +324,9 @@ export async function getPartnerConversation(
     sendSuccess(res, 200, "Conversation ideas", {
       included: true,
       memberFirstName: opened.gate.memberFirstName,
-      lines: guide?.lines ?? [],
-      sources: evidenceSources(guide?.evidenceIds ?? []),
+      lines: conversationLines(digest.sections, opened.gate.topicsAllowed),
+      sources: evidenceSources(digest.sections.evidenceIds),
+      safeLine: digest.safeLine,
     });
   } catch (error) {
     next(error);
@@ -317,7 +350,7 @@ export async function getPartnerDigest(
         topicsAllowed: opened.gate.topicsAllowed,
         result: "empty",
       });
-      sendSuccess(res, 200, PLUS_LINE, { included: false, plusMessage: PLUS_LINE });
+      sendSuccess(res, 200, planNote(opened.gate), { included: false, plusMessage: planNote(opened.gate) });
       return;
     }
     const digest = await loadWeeklyDigest({
@@ -325,6 +358,7 @@ export async function getPartnerDigest(
       partnerUserId: opened.partnerUserId,
       memberFirstName: opened.gate.memberFirstName,
       topicsAllowed: opened.gate.topicsAllowed,
+      advanced: opened.gate.advancedIncluded,
     });
     await writePartnerAudit({
       partnerUserId: opened.partnerUserId,
@@ -339,7 +373,17 @@ export async function getPartnerDigest(
       memberFirstName: opened.gate.memberFirstName,
       weekStart: digest.weekStart,
       replayed: digest.replayed,
-      sections: digest.sections,
+      safeLine: digest.safeLine,
+      sections: {
+        whatSheMayBeExperiencing: digest.sections.whatSheMayBeExperiencing,
+        whatMayHelp: digest.sections.whatMayHelp,
+        howToCommunicate: digest.sections.howToCommunicate,
+        whatToAvoid: digest.sections.whatToAvoid,
+        oneSimpleSupportAction: digest.sections.oneSimpleSupportAction,
+        evidenceIds: digest.sections.evidenceIds,
+        safeLine: digest.sections.safeLine ?? null,
+        advancedObservation: digest.sections.advancedObservation ?? null,
+      },
       sources: evidenceSources(digest.sections.evidenceIds),
     });
   } catch (error) {

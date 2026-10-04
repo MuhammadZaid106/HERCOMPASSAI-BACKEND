@@ -16,6 +16,14 @@ export interface SavedDigestSections {
   whatToAvoid: string[];
   oneSimpleSupportAction: string | null;
   evidenceIds: string[];
+  /** Set after the week is written, so a refresh replays this row. */
+  writtenBy?: "gateway" | "fallback";
+  /** Shown when the safety pass blocks a personalised wording. Saved sections stay. */
+  safeLine?: string | null;
+  /** Premium only. Null on Free and Plus. */
+  advancedObservation?: string | null;
+  /** One short lesson paragraph per academy slug, written once this week. */
+  lessonNotes?: Record<string, { paragraph: string | null; safeLine: string | null }>;
 }
 
 export class PartnerDigest extends Model<

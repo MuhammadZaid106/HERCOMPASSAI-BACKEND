@@ -34,19 +34,27 @@ export const PARTNER_DIGEST_OUTPUT_CONTRACT_V1 = `Return exactly this JSON shape
   "howToCommunicate": string[],
   "whatToAvoid": string[],
   "oneSimpleSupportAction": string,
-  "citationIds": string[]
+  "citationIds": string[],
+  "advancedObservation": string | null
 }
 
 Rules:
 - "whatSheMayBeExperiencing" describes reported patterns, never a condition.
 - "whatMayHelp", "howToCommunicate" and "whatToAvoid" hold 1 to 6 short, practical items.
 - "oneSimpleSupportAction" is a single low-effort action the partner can take today.
-- "citationIds" must be a non-empty subset of the supplied valid citation IDs.`;
+- "citationIds" must be a non-empty subset of the supplied valid citation IDs.
+- When premium_section is "include", "advancedObservation" is one short observational paragraph about the same authorized topics. No numbers, no private logs, no diagnosis.
+- When premium_section is "omit", "advancedObservation" is null.
+- When the writing task asks for a lesson paragraph, put that paragraph in "oneSimpleSupportAction".`;
 
 export const PARTNER_DIGEST_USER_TEMPLATE_V1 = `Create a Partner Digest from the authorized context below.
 
 <digest_version>{{DIGEST_VERSION}}</digest_version>
 <locale>{{LOCALE}}</locale>
+
+<member_first_name>{{MEMBER_FIRST_NAME}}</member_first_name>
+<writing_task>{{PARTNER_TASK}}</writing_task>
+<premium_section>{{PREMIUM_SECTION}}</premium_section>
 
 <authorized_scope>
 These are the ONLY categories of member information you may reference.

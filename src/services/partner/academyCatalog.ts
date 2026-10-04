@@ -10,8 +10,8 @@ export interface AcademyLesson {
 
 /**
  * Men's Academy foundation.
- * Lessons, category, version, and content source live here so a later editor
- * can replace this list without changing the pages.
+ * Category, version, and evidenceId are the content source. The lesson page
+ * may add one gateway paragraph drawn from that evidence card only.
  */
 export const ACADEMY_LESSONS: AcademyLesson[] = [
   {
