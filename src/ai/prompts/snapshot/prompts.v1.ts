@@ -31,15 +31,33 @@ Return a single JSON object and nothing else. No prose, no markdown, no code fen
 export const SNAPSHOT_OUTPUT_CONTRACT_V1 = `Return exactly this JSON shape and nothing else:
 
 {
-  "symptomPattern": { "summary": string, "reportedAreas": string[], "impact": string | null },
-  "moodPattern": { "summary": string, "reportedAreas": string[], "impact": string | null },
-  "sleepPattern": { "summary": string, "reportedAreas": string[], "impact": string | null },
-  "energyPattern": { "summary": string, "reportedAreas": string[], "impact": string | null },
+  "symptomPattern": {
+    "summary": string,
+    "reportedAreas": string[],
+    "impact": string | null
+  },
+  "moodPattern": {
+    "summary": string,
+    "reportedAreas": string[],
+    "impact": string | null
+  },
+  "sleepPattern": {
+    "summary": string,
+    "reportedAreas": string[],
+    "impact": string | null
+  },
+  "energyPattern": {
+    "summary": string,
+    "reportedAreas": string[],
+    "impact": string | null
+  },
   "lifestyleObservations": string[],
   "personalizedRecommendations": [
     { "what": string, "why": string, "start": string, "category": string, "citationIds": string[] }
   ],
-  "suggestedNextSteps": [ { "horizon": "today" | "this_week" | "track", "action": string } ],
+  "suggestedNextSteps": [
+    { "horizon": "today" | "this_week" | "track", "action": string }
+  ],
   "partnerSupportOpportunity": {
     "suggestedApproach": string,
     "shareIdea": string,
@@ -47,19 +65,34 @@ export const SNAPSHOT_OUTPUT_CONTRACT_V1 = `Return exactly this JSON shape and n
   } | null
 }
 
-Rules:
-- "reportedAreas" contains only areas present in the supplied context. Never more than 12.
-- Provide 3 to 5 "personalizedRecommendations" when the context supports them; never fewer than 1.
-- Exactly one "suggestedNextSteps" entry per horizon: today, this_week, track. Never more than 4 total.
-- "partnerSupportOpportunity" must be null unless the context indicates partner support is relevant.
-- "citationIds" must be a non-empty subset of <valid_citation_ids>, copied exactly. Do not write a source name in place of an id.
+STRICT FIELD RULES — violating any rule causes the entire response to be rejected:
 
-LENGTH LIMITS (hard limits; a longer value is rejected and the whole response is discarded)
-- "impact" is a short label, not a sentence: 40 characters or fewer, or null.
-- Each "summary": 600 characters or fewer. Each "reportedAreas" entry: 120 characters or fewer.
-- Each recommendation "what", "why" and "start": 400, 400 and 300 characters or fewer.
-- "lifestyleObservations" entries: 400 characters or fewer, and at most 8 entries.
-- Every "citationIds" entry: 64 characters or fewer, and at most 6 per list.`;
+1. "impact" — MUST be a SHORT LABEL of 40 characters or fewer, or null. It is NOT a sentence.
+   GOOD: "Disrupted sleep quality"  (24 chars)
+   BAD:  "This appears to be significantly impacting daily energy and mood"  (too long)
+
+2. "horizon" — MUST be EXACTLY one of these three literal strings (no variations):
+   "today"     — for actions to take today
+   "this_week" — for actions to take this week
+   "track"     — for things to monitor over time
+   Any other value (e.g. "this week", "weekly", "ongoing") is INVALID and causes rejection.
+   Include EXACTLY ONE entry per horizon value. Total entries: exactly 3.
+
+3. "reportedAreas" — only areas present in the supplied context. Never more than 12.
+
+4. "personalizedRecommendations" — 3 to 5 entries when context supports them; never fewer than 1.
+
+5. "partnerSupportOpportunity" — must be null unless the context explicitly mentions a partner.
+
+6. "citationIds" — must be copied EXACTLY (character for character) from the valid_citation_ids list.
+
+LENGTH LIMITS (hard limits; a longer value causes the entire response to be discarded):
+- "impact": 40 characters or fewer, or null
+- Each "summary": 600 characters or fewer
+- Each "reportedAreas" entry: 120 characters or fewer
+- Each recommendation "what", "why", "start": 400, 400, 300 characters or fewer
+- "lifestyleObservations" entries: 400 characters or fewer, at most 8 entries
+- Every "citationIds" entry: 64 characters or fewer, at most 6 per list`;
 
 export const SNAPSHOT_USER_TEMPLATE_V1 = `Generate a HerCompass Personal Menopause Snapshot from the verified context below.
 
