@@ -140,11 +140,23 @@ function normalizeUsage(usage: GeminiResponse["usageMetadata"]): ModelUsage {
  * `assistant` is called `model`. Conflating them produces a 400 from the API, or
  * with a lenient proxy, a quietly ignored system prompt.
  */
+
+/**
+ * Returns true for models in the 2.5 family that accept `thinkingConfig`.
+ * The 3.8 family and earlier models do not expose this field and return an
+ * empty candidates array (or the "model output must contain…" error) when it
+ * is present.
+ */
+function supportsThinkingConfig(model: string): boolean {
+  return /gemini-2\.5/i.test(model);
+}
+
 function buildRequestBody(
   messages: ModelMessage[],
   temperature: number,
   maxOutputTokens: number,
-  jsonMode: boolean
+  jsonMode: boolean,
+  model: string
 ): Record<string, unknown> {
   const systemText = messages
     .filter((message) => message.role === "system")
@@ -171,25 +183,19 @@ function buildRequestBody(
       // a different name.
       ...(jsonMode ? { responseMimeType: "application/json" } : {}),
       /**
-       * Thinking is switched off, and `maxOutputTokens` is the reason.
+       * Thinking is switched off for 2.5-family models, and `maxOutputTokens` is
+       * the reason. Reasoning tokens are drawn from the *output* budget, so a
+       * thinking model spends the allowance the answer needed before writing any.
+       * Measured on `gemini-2.5-flash` against the real `ai_insight` prompt at
+       * the route's 900-token budget: 863 tokens of thinking, 33 of answer,
+       * `MAX_TOKENS`, cut off mid-string. `jsonPayload.ts` cannot recover that.
        *
-       * Reasoning tokens are drawn from the *output* budget, so a thinking model
-       * spends the allowance the answer needed before writing any. Measured on
-       * `gemini-3.8-flash` against the real `ai_insight` prompt at the route's
-       * 900-token budget: 863 tokens of thinking, 33 of answer, `MAX_TOKENS`,
-       * cut off mid-string. `jsonPayload.ts` cannot recover that — every one of
-       * its five strategies needs an unterminated string to be closed first, so
-       * a truncation inside a literal fails all of them and a correct answer is
-       * reported as `schema_invalid`. The same prompt with thinking disabled
-       * spends 0 on thinking, returns 714 tokens, `STOP`, and parses.
-       *
-       * Nothing is lost by disabling it. The determinism rules forbid the model
-       * from calculating, asserting certainty, or selecting a source, so the
-       * deliberation a reasoning model performs has nothing to decide that the
-       * deterministic context and approved-evidence block have not already
-       * settled. Disabling it also removes the 4s of latency it added per call.
+       * For 3.8-flash and other non-thinking models the field MUST be omitted.
+       * Google's API returns an empty candidates array (or "model output must
+       * contain either output text or tool calls") when `thinkingConfig` is sent
+       * to a model that does not support it.
        */
-      thinkingConfig: { thinkingBudget: 0 },
+      ...(supportsThinkingConfig(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
     },
   };
 }
@@ -262,7 +268,8 @@ export class GeminiProvider implements ModelProvider {
         request.messages,
         request.temperature,
         request.maxOutputTokens,
-        this.config.supportsJsonMode && request.responseFormat === "json_object"
+        this.config.supportsJsonMode && request.responseFormat === "json_object",
+        this.config.model
       );
 
       const response = await this.transport()(this.endpoint(), {
