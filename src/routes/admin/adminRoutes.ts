@@ -2,6 +2,13 @@ import { Router } from "express";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { requireStaff } from "../../middleware/roleMiddleware.js";
 import { listAiFlags, updateAiFlag, getMemberAiUsage } from "../../controllers/admin/adminController.js";
+import {
+  getAdminMetrics,
+  getAdminPartners,
+  getAdminPlans,
+  getAdminUser,
+  getAdminUsers,
+} from "../../controllers/admin/adminDeskController.js";
 import { listCommunityNotes, reviewCommunityNote } from "../../controllers/admin/communityReviewController.js";
 
 const router: Router = Router();
@@ -10,12 +17,12 @@ const router: Router = Router();
 // then requireStaff checks the role on that verified token.
 router.use(requireAuth, requireStaff);
 
-/**
- * The AI review queue.
- *
- * `ai_flags` was write-only from the day it was added: `recordAiFeedback` created
- * rows, nothing ever read them. These routes close that loop.
- */
+router.get("/metrics", getAdminMetrics);
+router.get("/users", getAdminUsers);
+router.get("/users/:id", getAdminUser);
+router.get("/partners", getAdminPartners);
+router.get("/plans", getAdminPlans);
+
 router.get("/ai-flags", listAiFlags);
 router.patch("/ai-flags/:id", updateAiFlag);
 
