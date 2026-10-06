@@ -52,25 +52,10 @@ const envSchema = z.object({
   AI_GATEWAY_CONFIG_VERSION: z.string().default("1.0"),
   /**
    * Budget for a single generation attempt, covering the whole round trip.
-   *
-   * Sized for a full-length Snapshot answer rather than a typical one: the output
-   * contract allows 1600 tokens, and a model that fills it on a shared router
-   * needs well over the median, while an 8B model on the same router was measured
-   * at 28 tok/s against 65 tok/s for a 70B. Measured end to end, a 70B Snapshot
-   * completes in ~16s, so this leaves headroom for the long tail rather than
-   * clipping a member's answer mid-sentence into the deterministic fallback.
    */
   AI_GATEWAY_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(45000),
   /**
    * Budget for the admin health probe.
-   *
-   * Unset by default, in which case it follows AI_GATEWAY_TIMEOUT_MS so it can
-   * never be the stricter of the two. A probe that gives up sooner than the
-   * request it is testing reports a working engine as unavailable, which is a
-   * worse failure than no probe at all: it invents an outage and sends an
-   * operator chasing a network problem that does not exist. That is not
-   * hypothetical — a 5s probe reported an 8B model on a shared router as down
-   * while the same model answered in 3s.
    */
   AI_GATEWAY_HEALTH_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).optional(),
   AI_GATEWAY_MAX_FALLBACK_ATTEMPTS: z.coerce.number().int().min(0).max(3).default(1),
@@ -89,16 +74,22 @@ const envSchema = z.object({
 
   /**
    * Google Gemini, on its native `generateContent` API.
-   *
-   * Unlike the two engines above, this URL is an API root that already contains
-   * the version segment: the adapter appends `/models/<GEMINI_MODEL>:generateContent`
-   * itself, so a URL ending in `/v1beta/openai` or `/v1/chat/completions` is wrong.
    */
   GEMINI_PROVIDER_URL: z.string().default(""),
   GEMINI_PROVIDER_KEY: z.string().default(""),
   /** Model id without the `models/` prefix, e.g. `gemini-3.8-flash`. */
   GEMINI_MODEL: z.string().default(""),
   GEMINI_MODEL_VERSION: z.string().default(""),
+
+  // ─── Stripe Payments & Billing ──────────────────────────────────────────────
+  STRIPE_SECRET_KEY: z.string().default(""),
+  STRIPE_WEBHOOK_SECRET: z.string().default(""),
+  STRIPE_PLUS_PRICE_ID_MONTHLY: z.string().default(""),
+  STRIPE_PLUS_PRICE_ID_ANNUAL: z.string().default(""),
+  STRIPE_PREMIUM_PRICE_ID_MONTHLY: z.string().default(""),
+  STRIPE_PREMIUM_PRICE_ID_ANNUAL: z.string().default(""),
+  STRIPE_SUCCESS_URL: z.string().default(""),
+  STRIPE_CANCEL_URL: z.string().default(""),
 });
 
 const parsed = envSchema.safeParse(process.env);

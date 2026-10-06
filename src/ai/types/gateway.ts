@@ -239,6 +239,8 @@ export interface PartnerDigestOutput {
   howToCommunicate: string[];
   whatToAvoid: string[];
   oneSimpleSupportAction: string;
+  /** Present only when the member's plan includes advanced partner intelligence. */
+  advancedObservation?: string | null;
   evidence: GatewayCitation[];
   confidence: GatewayConfidence;
   safetyStatus: "approved";

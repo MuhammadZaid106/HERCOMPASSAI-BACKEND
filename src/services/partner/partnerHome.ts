@@ -1,5 +1,6 @@
 import { OnboardingProfile, PartnerInvite, User } from "../../models/index.js";
 import { resolveMemberPlan } from "../member/planCatalog.js";
+import { partnerPlanMessage } from "./partnerAccess.js";
 
 const SHARE_SCOPES = ["general_support", "shared_activities", "communication_guidance"] as const;
 
@@ -12,10 +13,17 @@ export interface PartnerHomeOn {
   connected: true;
   access: "on";
   memberFirstName: string;
+  memberEmail: string;
+  joinedAt: string;
+  scopes: string[];
   generalSupport: boolean;
   sharedActivities: boolean;
   communicationGuidance: boolean;
   digestIncluded: boolean;
+  academyIncluded: boolean;
+  supportIncluded: boolean;
+  /** Set when their plan does not include the partner guides. */
+  planMessage: string | null;
 }
 
 export type PartnerHomeView = PartnerHomeOff | PartnerHomeOn;
@@ -25,6 +33,8 @@ export interface PartnerHomeInput {
   sharingOn: boolean;
   scopes: string[];
   memberName: string;
+  memberEmail?: string;
+  joinedAt?: string | null;
   memberPlan: string | null;
 }
 
@@ -42,8 +52,9 @@ function firstName(name: string): string {
  * What a signed-in partner may see.
  *
  * The invite link expiry applies only before acceptance. An accepted
- * relationship stays until the member turns sharing off. The payload never
- * includes an email, a score, a symptom, or a note.
+ * relationship stays until the member turns sharing off. The partner sees the
+ * member's name, account email, and join date. The payload never includes a
+ * score, a symptom, or a note.
  */
 export function presentPartnerHome(input: PartnerHomeInput): PartnerHomeView {
   if (input.inviteStatus === "declined" || input.inviteStatus === "revoked") {
@@ -58,17 +69,25 @@ export function presentPartnerHome(input: PartnerHomeInput): PartnerHomeView {
     return { connected: false, access: "off" };
   }
 
-  const scopes = new Set(input.scopes.filter((scope) => SHARE_SCOPES.includes(scope as (typeof SHARE_SCOPES)[number])));
+  const scopes = SHARE_SCOPES.filter((scope) => input.scopes.includes(scope));
   const plan = resolveMemberPlan(input.memberPlan);
+  const guidesIncluded = plan === "plus" || plan === "premium";
+  const memberFirstName = firstName(input.memberName);
 
   return {
     connected: true,
     access: "on",
-    memberFirstName: firstName(input.memberName),
-    generalSupport: scopes.has("general_support"),
-    sharedActivities: scopes.has("shared_activities"),
-    communicationGuidance: scopes.has("communication_guidance"),
-    digestIncluded: plan === "plus" || plan === "premium",
+    memberFirstName,
+    memberEmail: input.memberEmail?.trim() ?? "",
+    joinedAt: input.joinedAt ?? "",
+    scopes: [...scopes],
+    generalSupport: scopes.includes("general_support"),
+    sharedActivities: scopes.includes("shared_activities"),
+    communicationGuidance: scopes.includes("communication_guidance"),
+    digestIncluded: guidesIncluded,
+    academyIncluded: guidesIncluded,
+    supportIncluded: guidesIncluded,
+    planMessage: guidesIncluded ? null : partnerPlanMessage(memberFirstName),
   };
 }
 
@@ -84,6 +103,8 @@ export async function loadPartnerHome(partnerUserId: string): Promise<PartnerHom
       sharingOn: false,
       scopes: [],
       memberName: "",
+      memberEmail: "",
+      joinedAt: null,
       memberPlan: null,
     });
   }
@@ -98,6 +119,8 @@ export async function loadPartnerHome(partnerUserId: string): Promise<PartnerHom
     sharingOn: Boolean(profile?.partnerConsent),
     scopes: profile?.partnerSharingScopes ?? [],
     memberName: member?.name ?? "",
+    memberEmail: member?.email ?? "",
+    joinedAt: invite.updatedAt ? invite.updatedAt.toISOString() : null,
     memberPlan: member?.plan ?? null,
   });
 }

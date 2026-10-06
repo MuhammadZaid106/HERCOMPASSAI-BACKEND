@@ -11,6 +11,8 @@ import memberRoutes from "./routes/member/memberRoutes.js";
 import aiRoutes from "./routes/ai/aiRoutes.js";
 import partnerInviteRoutes from "./routes/partner/partnerInviteRoutes.js";
 import adminRoutes from "./routes/admin/adminRoutes.js";
+import billingRoutes from "./routes/billing/billingRoutes.js";
+import { handleStripeWebhook } from "./controllers/billing/billingController.js";
 import { globalErrorHandler } from "./middleware/errorHandler.js";
 import { connectDB } from "./models/index.js";
 
@@ -22,17 +24,17 @@ const app: Express = express();
 let dbReady: Promise<void> | null = null;
 
 if (process.env.VERCEL) {
-  app.use(async (_req: Request, _res: Response, next: NextFunction) => {
-    if (!dbReady) {
-      dbReady = connectDB();
-    }
-    try {
-      await dbReady;
-      next();
-    } catch (err) {
-      next(err);
-    }
-  });
+    app.use(async (_req: Request, _res: Response, next: NextFunction) => {
+        if (!dbReady) {
+            dbReady = connectDB();
+        }
+        try {
+            await dbReady;
+            next();
+        } catch (err) {
+            next(err);
+        }
+    });
 }
 
 // ─── Security Middleware ──────────────────────────────────────────────────────
@@ -40,52 +42,55 @@ app.use(helmet());
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 const baseAllowedOrigins = [
-  "https://hercompassai.vercel.app",
-  "http://localhost:3000",
-  ...env.CORS_ORIGIN.split(",").map((o) => o.trim()).filter(Boolean),
+    "https://hercompassai.vercel.app",
+    "http://localhost:3000",
+    ...env.CORS_ORIGIN.split(",").map((o: string) => o.trim()).filter(Boolean),
 ];
 const allowedOrigins = Array.from(new Set(baseAllowedOrigins));
 
 app.use(
-  cors({
-    origin: (requestOrigin, callback) => {
-      // Allow server-to-server, mobile, or tool requests without origin
-      if (!requestOrigin) {
-        return callback(null, true);
-      }
-      const isAllowed =
-        allowedOrigins.includes(requestOrigin) ||
-        (requestOrigin.endsWith(".vercel.app") && requestOrigin.includes("hercompassai"));
+    cors({
+        origin: (requestOrigin, callback) => {
+            // Allow server-to-server, mobile, or tool requests without origin
+            if (!requestOrigin) {
+                return callback(null, true);
+            }
+            const isAllowed =
+                allowedOrigins.includes(requestOrigin) ||
+                (requestOrigin.endsWith(".vercel.app") && requestOrigin.includes("hercompassai"));
 
-      if (isAllowed) {
-        callback(null, true);
-      } else {
-        logger.warn(`[CORS] Blocked request from unauthorized origin: ${requestOrigin}`);
-        callback(new Error(`Origin ${requestOrigin} not allowed by CORS`));
-      }
-    },
-    // PATCH is required by the admin review queue: `PATCH /api/admin/ai-flags/:id`
-    // is how staff move a flag through its lifecycle. It was missing here, so the
-    // browser preflight rejected the method and every triage button failed in the
-    // browser before the request reached Express — surfacing to the admin as a
-    // network error rather than a server fault.
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With"],
-    exposedHeaders: ["Content-Length"],
-    credentials: true,
-  })
+            if (isAllowed) {
+                callback(null, true);
+            } else {
+                logger.warn(`[CORS] Blocked request from unauthorized origin: ${requestOrigin}`);
+                callback(new Error(`Origin ${requestOrigin} not allowed by CORS`));
+            }
+        },
+        // PATCH is required by the admin review queue: `PATCH /api/admin/ai-flags/:id`
+        // is how staff move a flag through its lifecycle. It was missing here, so the
+        // browser preflight rejected the method and every triage button failed in the
+        // browser before the request reached Express — surfacing to the admin as a
+        // network error rather than a server fault.
+        methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With", "stripe-signature"],
+        exposedHeaders: ["Content-Length"],
+        credentials: true,
+    })
 );
 
 // ─── HTTP Request Logging ─────────────────────────────────────────────────────
 app.use(
-  morgan(":method :url :status :response-time ms — :res[content-length] bytes", {
-    stream: {
-      write: (message: string) => {
-        logger.info(message.trim());
-      },
-    },
-  })
+    morgan(":method :url :status :response-time ms — :res[content-length] bytes", {
+        stream: {
+            write: (message: string) => {
+                logger.info(message.trim());
+            },
+        },
+    })
 );
+
+// ─── Stripe Webhook (Must receive raw body for signature verification) ────────
+app.post("/api/billing/webhook", express.raw({ type: "application/json" }), handleStripeWebhook);
 
 // ─── Body Parsers ─────────────────────────────────────────────────────────────
 app.use(express.json({ limit: "10kb" }));
@@ -93,7 +98,7 @@ app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 
 // ─── Health Check ─────────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {
-  res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+    res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
@@ -104,9 +109,11 @@ app.use("/api/member", memberRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/partner", partnerInviteRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/billing", billingRoutes);
 
 
 // ─── Global Error Handler (must be last) ─────────────────────────────────────
 app.use(globalErrorHandler);
 
 export default app;
+

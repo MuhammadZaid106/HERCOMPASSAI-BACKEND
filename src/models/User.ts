@@ -19,6 +19,9 @@ export class User extends Model<
   declare plan: CreationOptional<"free" | "plus" | "premium">;
   declare emailVerified: CreationOptional<boolean>;
   declare googleId: CreationOptional<string | null>;
+  declare stripeCustomerId: CreationOptional<string | null>;
+  declare stripeSubscriptionId: CreationOptional<string | null>;
+  declare subscriptionStatus: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -63,6 +66,18 @@ User.init(
     },
     googleId: {
       type: DataTypes.STRING(255),
+      allowNull: true,
+    },
+    stripeCustomerId: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+    },
+    stripeSubscriptionId: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+    },
+    subscriptionStatus: {
+      type: DataTypes.STRING(50),
       allowNull: true,
     },
     createdAt: {
