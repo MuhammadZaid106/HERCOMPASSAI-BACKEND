@@ -24,6 +24,24 @@ export const resolveFlagSchema = z.object({
 export const adminUserQuerySchema = z.object({
   q: z.string().trim().max(80).optional().default(""),
   page: z.coerce.number().int().min(1).max(1000).default(1),
+  plan: z.enum(["free", "plus", "premium"]).optional(),
+  role: z.enum(["member", "partner", "admin", "developer"]).optional(),
+});
+
+export const adminPageQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(1000).default(1),
+});
+
+export const adminSupportQuerySchema = adminPageQuerySchema.extend({
+  userId: z.string().uuid().optional(),
+});
+
+export const adminEvidenceQuerySchema = z.object({
+  q: z.string().trim().max(80).optional().default(""),
+});
+
+export const adminMetricsQuerySchema = z.object({
+  days: z.coerce.number().int().refine((value) => value === 14 || value === 30).default(14),
 });
 
 export const adminUserIdSchema = z.string().uuid();

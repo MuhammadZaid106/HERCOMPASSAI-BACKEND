@@ -56,6 +56,9 @@ export interface ReviewQueueItem {
   /** From the audit row, so a reviewer can see which citations the event used. */
   citationIds: string[] | null;
   resultStatus: string | null;
+  safetyStatus: string | null;
+  sciFindingCodes: string[] | null;
+  latencyMs: number | null;
   /** The member's own words, when they left any. */
   memberComment: string | null;
 }
@@ -205,6 +208,9 @@ export async function listReviewQueue(
         createdAt: flag.createdAt,
         citationIds: event?.citationIds ?? null,
         resultStatus: event?.resultStatus ?? null,
+        safetyStatus: event?.safetyStatus ?? null,
+        sciFindingCodes: event?.sciFindingCodes ?? null,
+        latencyMs: event?.latencyMs ?? null,
         memberComment: commentByRequest.get(flag.requestId)?.comment ?? null,
       };
     }),

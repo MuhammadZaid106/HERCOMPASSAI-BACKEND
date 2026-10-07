@@ -3,9 +3,12 @@ import { requireAuth } from "../../middleware/authMiddleware.js";
 import { requireStaff } from "../../middleware/roleMiddleware.js";
 import { listAiFlags, updateAiFlag, getMemberAiUsage } from "../../controllers/admin/adminController.js";
 import {
+  getAdminAudit,
+  getAdminEvidence,
   getAdminMetrics,
   getAdminPartners,
   getAdminPlans,
+  getAdminSupport,
   getAdminUser,
   getAdminUsers,
 } from "../../controllers/admin/adminDeskController.js";
@@ -22,6 +25,9 @@ router.get("/users", getAdminUsers);
 router.get("/users/:id", getAdminUser);
 router.get("/partners", getAdminPartners);
 router.get("/plans", getAdminPlans);
+router.get("/audit", getAdminAudit);
+router.get("/support", getAdminSupport);
+router.get("/evidence", getAdminEvidence);
 
 router.get("/ai-flags", listAiFlags);
 router.patch("/ai-flags/:id", updateAiFlag);
