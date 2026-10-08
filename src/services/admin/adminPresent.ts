@@ -71,6 +71,27 @@ export function countsForInvites(
   return INVITE_STATES.map((status) => ({ status, count: byStatus.get(status) ?? 0 }));
 }
 
+export function medianSeconds(values: number[]): number | null {
+  const sorted = values.filter((value) => Number.isFinite(value) && value >= 0).sort((a, b) => a - b);
+  if (sorted.length === 0) return null;
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[mid] ?? null;
+  const left = sorted[mid - 1] ?? 0;
+  const right = sorted[mid] ?? 0;
+  return (left + right) / 2;
+}
+
+/** A measured duration for the staff desk, such as `2h 14m`. */
+export function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return `${minutes}m`;
+}
+
 export function asCount(value: unknown): number {
   const count = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(count) || count < 0) return 0;

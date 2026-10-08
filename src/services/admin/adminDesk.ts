@@ -1,8 +1,11 @@
-import { Op, QueryTypes } from "sequelize";
+import { Op, QueryTypes, type WhereOptions } from "sequelize";
 import { sequelize } from "../../config/db.js";
 import { ENTITLEMENTS, type EntitlementFeature } from "../../config/entitlements.js";
+import { APPROVED_EVIDENCE } from "../../ai/evidence/approvedEvidence.js";
 import {
+  AiAuditLog,
   OnboardingProfile,
+  PartnerAuditLog,
   PartnerInvite,
   PersonalSnapshot,
   SupportRequest,
@@ -16,7 +19,9 @@ import {
   countsForPlans,
   fillDayCounts,
   firstName,
+  formatDuration,
   likePattern,
+  medianSeconds,
   partnerStateForUser,
   scopeList,
   utcDayKeys,
@@ -55,8 +60,8 @@ export interface AdminMetrics {
   snapshots: number;
   openAiFlags: number;
   acceptedPartnerConnections: number;
-  /** Null until a measured duration is stored. */
-  medianTtfv: null;
+  /** Middle time from account creation to the saved snapshot. Null when nobody has one. */
+  medianTtfv: string | null;
   signupsByDay: Array<{ day: string; count: number }>;
   membersByPlan: Array<{ plan: PlanId; count: number }>;
   invitesByState: Array<{ status: InviteState; count: number }>;
@@ -79,6 +84,7 @@ export interface AdminUserRow {
 export interface AdminUserDetail extends AdminUserRow {
   consent: "on" | "off" | "unknown";
   supportTickets: number;
+  audit: AdminAuditLine[];
 }
 
 async function scalar(sql: string, replacements?: Record<string, unknown>): Promise<number> {
@@ -89,9 +95,10 @@ async function scalar(sql: string, replacements?: Record<string, unknown>): Prom
   return asCount(rows[0]?.count);
 }
 
-export async function loadAdminMetrics(now = new Date()): Promise<AdminMetrics> {
-  const start = utcWindowStart(DAY_WINDOW, now);
-  const [members, snapshots, openAiFlags, acceptedPartnerConnections, signupRows, planRows, inviteRows, severityRows, flagTotal] =
+export async function loadAdminMetrics(now = new Date(), days = DAY_WINDOW): Promise<AdminMetrics> {
+  const windowDays = days === 30 ? 30 : DAY_WINDOW;
+  const start = utcWindowStart(windowDays, now);
+  const [members, snapshots, openAiFlags, acceptedPartnerConnections, signupRows, planRows, inviteRows, severityRows, flagTotal, durationRows] =
     await Promise.all([
       scalar(`SELECT COUNT(*)::int AS count FROM users WHERE role = 'member'`),
       scalar(`SELECT COUNT(*)::int AS count FROM personal_snapshots`),
@@ -123,18 +130,26 @@ export async function loadAdminMetrics(now = new Date()): Promise<AdminMetrics> 
         { type: QueryTypes.SELECT },
       ),
       scalar(`SELECT COUNT(*)::int AS count FROM ai_flags`),
+      sequelize.query<{ seconds: number }>(
+        `SELECT EXTRACT(EPOCH FROM (s.created_at - u.created_at)) AS seconds
+         FROM personal_snapshots s
+         INNER JOIN users u ON u.id = s.user_id
+         WHERE u.role = 'member' AND s.created_at >= u.created_at`,
+        { type: QueryTypes.SELECT },
+      ),
     ]);
 
   const severity = new Map(severityRows.map((row) => [row.severity, asCount(row.count)]));
+  const median = medianSeconds(durationRows.map((row) => Number(row.seconds)));
 
   return {
     members,
     snapshots,
     openAiFlags,
     acceptedPartnerConnections,
-    medianTtfv: null,
+    medianTtfv: median === null ? null : formatDuration(median),
     signupsByDay: fillDayCounts(
-      utcDayKeys(DAY_WINDOW, now),
+      utcDayKeys(windowDays, now),
       signupRows.map((row) => ({ day: row.day, count: asCount(row.count) })),
     ),
     membersByPlan: countsForPlans(
@@ -190,20 +205,37 @@ async function presentUsers(users: User[]): Promise<AdminUserRow[]> {
   }));
 }
 
+export interface AdminAuditLine {
+  source: "ai" | "partner";
+  label: string;
+  result: string;
+  createdAt: string;
+}
+
+const ACCOUNT_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export async function searchAdminUsers(
   query: string,
   page: number,
+  filters: {
+    plan?: "free" | "plus" | "premium";
+    role?: User["role"];
+    account?: "confirmed" | "unconfirmed";
+  } = {},
 ): Promise<{ users: AdminUserRow[]; total: number; page: number; pageSize: number }> {
   const trimmed = query.trim();
-  const where =
-    trimmed.length === 0
-      ? {}
-      : {
-          [Op.or]: [
-            { name: { [Op.iLike]: likePattern(trimmed) } },
-            { email: { [Op.iLike]: likePattern(trimmed) } },
-          ],
-        };
+  const matches: WhereOptions[] = [
+    { name: { [Op.iLike]: likePattern(trimmed) } },
+    { email: { [Op.iLike]: likePattern(trimmed) } },
+  ];
+  if (ACCOUNT_UUID.test(trimmed)) matches.push({ id: trimmed });
+  const where: WhereOptions = {
+    ...(filters.plan ? { plan: filters.plan } : {}),
+    ...(filters.role ? { role: filters.role } : {}),
+    ...(filters.account ? { emailVerified: filters.account === "confirmed" } : {}),
+    ...(trimmed.length > 0 ? { [Op.or]: matches } : {}),
+  };
 
   const total = await User.count({ where });
   const pageCount = Math.max(1, Math.ceil(total / USER_LIMIT));
@@ -228,17 +260,46 @@ export async function loadAdminUser(userId: string): Promise<AdminUserDetail | n
   const user = await User.findByPk(userId, { attributes: [...USER_FIELDS] });
   if (!user) return null;
   const [row] = await presentUsers([user]);
-  const [profile, supportTickets] = await Promise.all([
+  const [profile, supportTickets, aiEvents, partnerEvents] = await Promise.all([
     OnboardingProfile.findOne({
       where: { userId },
       attributes: ["partnerConsent"],
     }),
     SupportRequest.count({ where: { userId } }),
+    AiAuditLog.findAll({
+      where: { userId },
+      attributes: ["feature", "resultStatus", "createdAt"],
+      order: [["createdAt", "DESC"]],
+      limit: 5,
+    }),
+    PartnerAuditLog.findAll({
+      where: { [Op.or]: [{ partnerUserId: userId }, { memberUserId: userId }] },
+      attributes: ["action", "result", "createdAt"],
+      order: [["createdAt", "DESC"]],
+      limit: 5,
+    }),
   ]);
+  const audit: AdminAuditLine[] = [
+    ...aiEvents.map((event) => ({
+      source: "ai" as const,
+      label: event.feature,
+      result: event.resultStatus,
+      createdAt: event.createdAt.toISOString(),
+    })),
+    ...partnerEvents.map((event) => ({
+      source: "partner" as const,
+      label: event.action,
+      result: event.result,
+      createdAt: event.createdAt.toISOString(),
+    })),
+  ]
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+    .slice(0, 8);
   return {
     ...row,
     consent: profile ? (profile.partnerConsent ? "on" : "off") : "unknown",
     supportTickets,
+    audit,
   };
 }
 
@@ -251,11 +312,30 @@ export interface AdminPartnerRow {
   createdAt: string;
 }
 
+export interface AdminPartnerActivity {
+  id: string;
+  action: string;
+  result: string;
+  memberFirstName: string;
+  createdAt: string;
+}
+
+export interface AdminPartnerSupportNote {
+  id: string;
+  userId: string;
+  memberFirstName: string;
+  topic: string;
+  message: string;
+  createdAt: string;
+}
+
 export async function loadAdminPartners(): Promise<{
   invitesByState: Array<{ status: InviteState; count: number }>;
   invites: AdminPartnerRow[];
+  activity: AdminPartnerActivity[];
+  supportNotes: AdminPartnerSupportNote[];
 }> {
-  const [inviteRows, invites] = await Promise.all([
+  const [inviteRows, invites, activityRows] = await Promise.all([
     sequelize.query<{ status: string; count: number }>(
       `SELECT status, COUNT(*)::int AS count FROM partner_invites GROUP BY status`,
       { type: QueryTypes.SELECT },
@@ -266,7 +346,47 @@ export async function loadAdminPartners(): Promise<{
       order: [["createdAt", "DESC"]],
       limit: INVITE_LIMIT,
     }),
+    PartnerAuditLog.findAll({
+      attributes: ["id", "action", "result", "memberUserId", "createdAt"],
+      order: [["createdAt", "DESC"]],
+      limit: 20,
+    }),
   ]);
+
+  const memberIds = [
+    ...new Set(
+      activityRows.flatMap((row) => (row.memberUserId ? [row.memberUserId] : [])),
+    ),
+  ];
+  const members =
+    memberIds.length === 0
+      ? []
+      : await User.findAll({
+          where: { id: { [Op.in]: memberIds } },
+          attributes: ["id", "name"],
+        });
+  const nameById = new Map(members.map((member) => [member.id, firstName(member.name)]));
+
+  const supportRows = await sequelize.query<{
+    id: string;
+    user_id: string;
+    name: string;
+    topic: string;
+    message: string;
+    created_at: Date;
+  }>(
+    `SELECT sr.id, sr.user_id, u.name, sr.topic, sr.message, sr.created_at
+     FROM support_requests sr
+     INNER JOIN users u ON u.id = sr.user_id
+     WHERE sr.user_id IN (
+       SELECT member_user_id FROM partner_invites
+       UNION
+       SELECT partner_user_id FROM partner_invites WHERE partner_user_id IS NOT NULL
+     )
+     ORDER BY sr.created_at DESC
+     LIMIT 20`,
+    { type: QueryTypes.SELECT },
+  );
 
   return {
     invitesByState: countsForInvites(
@@ -294,6 +414,21 @@ export async function loadAdminPartners(): Promise<{
         },
       ];
     }),
+    activity: activityRows.map((row) => ({
+      id: row.id,
+      action: row.action,
+      result: row.result,
+      memberFirstName: nameById.get(row.memberUserId ?? "") ?? "Member",
+      createdAt: row.createdAt.toISOString(),
+    })),
+    supportNotes: supportRows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      memberFirstName: firstName(row.name),
+      topic: row.topic,
+      message: row.message,
+      createdAt: new Date(row.created_at).toISOString(),
+    })),
   };
 }
 
@@ -329,4 +464,188 @@ export async function loadAdminPlans(): Promise<{ billingConnected: false; plans
       };
     }),
   };
+}
+
+const LIST_PAGE = 25;
+const AUDIT_RESULTS = ["approved", "approved_with_repairs", "fallback", "blocked"] as const;
+
+export interface AdminAuditRow {
+  id: string;
+  source: "ai" | "partner";
+  label: string;
+  result: string;
+  detail: string;
+  memberFirstName: string;
+  createdAt: string;
+}
+
+export async function loadAdminAudit(
+  page: number,
+  now = new Date(),
+): Promise<{
+  rows: AdminAuditRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  resultsByStatus: Array<{ status: (typeof AUDIT_RESULTS)[number]; count: number }>;
+}> {
+  const [aiTotal, partnerTotal] = await Promise.all([
+    AiAuditLog.count(),
+    PartnerAuditLog.count(),
+  ]);
+  const total = aiTotal + partnerTotal;
+  const pageCount = Math.max(1, Math.ceil(total / LIST_PAGE));
+  const safePage = Math.min(page, pageCount);
+  const take = safePage * LIST_PAGE;
+
+  const [aiRows, partnerRows, resultRows] = await Promise.all([
+    AiAuditLog.findAll({
+      attributes: ["id", "feature", "resultStatus", "safetyStatus", "citationIds", "userId", "createdAt"],
+      order: [["createdAt", "DESC"]],
+      limit: take,
+    }),
+    PartnerAuditLog.findAll({
+      attributes: ["id", "action", "result", "topicAsked", "memberUserId", "createdAt"],
+      order: [["createdAt", "DESC"]],
+      limit: take,
+    }),
+    sequelize.query<{ result_status: string; count: number }>(
+      `SELECT result_status, COUNT(*)::int AS count
+       FROM ai_audit_logs
+       WHERE created_at >= :start
+       GROUP BY result_status`,
+      { replacements: { start: utcWindowStart(DAY_WINDOW, now) }, type: QueryTypes.SELECT },
+    ),
+  ]);
+
+  const memberIds = [
+    ...new Set([
+      ...aiRows.map((row) => row.userId),
+      ...partnerRows.flatMap((row) => (row.memberUserId ? [row.memberUserId] : [])),
+    ]),
+  ];
+  const members =
+    memberIds.length === 0
+      ? []
+      : await User.findAll({
+          where: { id: { [Op.in]: memberIds } },
+          attributes: ["id", "name"],
+        });
+  const nameById = new Map(members.map((member) => [member.id, firstName(member.name)]));
+
+  const merged: AdminAuditRow[] = [
+    ...aiRows.map((row) => ({
+      id: `ai-${row.id}`,
+      source: "ai" as const,
+      label: row.feature,
+      result: row.resultStatus,
+      detail: (row.citationIds ?? []).length > 0 ? (row.citationIds ?? []).join(", ") : row.safetyStatus,
+      memberFirstName: nameById.get(row.userId) ?? "Member",
+      createdAt: row.createdAt.toISOString(),
+    })),
+    ...partnerRows.map((row) => ({
+      id: `partner-${row.id}`,
+      source: "partner" as const,
+      label: row.action,
+      result: row.result,
+      detail: row.topicAsked ?? "No topic recorded",
+      memberFirstName: nameById.get(row.memberUserId ?? "") ?? "Member",
+      createdAt: row.createdAt.toISOString(),
+    })),
+  ].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+
+  const counts = new Map(resultRows.map((row) => [row.result_status, asCount(row.count)]));
+
+  return {
+    rows: merged.slice((safePage - 1) * LIST_PAGE, safePage * LIST_PAGE),
+    total,
+    page: safePage,
+    pageSize: LIST_PAGE,
+    resultsByStatus: AUDIT_RESULTS.map((status) => ({
+      status,
+      count: counts.get(status) ?? 0,
+    })),
+  };
+}
+
+export interface AdminSupportRow {
+  id: string;
+  memberFirstName: string;
+  topic: string;
+  message: string;
+  createdAt: string;
+}
+
+export async function loadAdminSupport(
+  page: number,
+  userId?: string,
+): Promise<{ rows: AdminSupportRow[]; total: number; page: number; pageSize: number }> {
+  const where = userId ? { userId } : {};
+  const total = await SupportRequest.count({ where });
+  const pageCount = Math.max(1, Math.ceil(total / LIST_PAGE));
+  const safePage = Math.min(page, pageCount);
+  const rows = await SupportRequest.findAll({
+    where,
+    attributes: ["id", "topic", "message", "createdAt"],
+    include: [{ model: User, as: "user", attributes: ["name"] }],
+    order: [["createdAt", "DESC"]],
+    limit: LIST_PAGE,
+    offset: (safePage - 1) * LIST_PAGE,
+  });
+
+  return {
+    rows: rows.map((row) => {
+      const member = row.get("user") as { name?: string } | undefined;
+      return {
+        id: row.id,
+        memberFirstName: firstName(member?.name ?? ""),
+        topic: row.topic,
+        message: row.message,
+        createdAt: row.createdAt.toISOString(),
+      };
+    }),
+    total,
+    page: safePage,
+    pageSize: LIST_PAGE,
+  };
+}
+
+export interface AdminEvidenceRow {
+  evidenceId: string;
+  citationId: string;
+  sourceName: string;
+  publisher: string;
+  sourceCategory: string;
+  publicationDate: string;
+  status: string;
+  version: string;
+  clinicianReview: "pending" | "signed";
+}
+
+export function searchAdminEvidence(query: string): AdminEvidenceRow[] {
+  const needle = query.trim().toLowerCase();
+  return APPROVED_EVIDENCE.filter((record) => {
+    if (needle.length === 0) return true;
+    const haystack = [
+      record.sourceName,
+      record.publisher,
+      record.title,
+      record.citationId,
+      record.evidenceId,
+      record.sourceCategory,
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(needle);
+  }).map((record) => ({
+    evidenceId: record.evidenceId,
+    citationId: record.citationId,
+    sourceName: record.sourceName,
+    publisher: record.publisher,
+    sourceCategory: record.sourceCategory,
+    publicationDate: record.publicationDate,
+    status: record.status,
+    version: record.version,
+    clinicianReview: record.clinicianReview,
+  }));
 }

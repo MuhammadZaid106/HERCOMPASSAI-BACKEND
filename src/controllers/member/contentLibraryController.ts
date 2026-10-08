@@ -3,8 +3,9 @@ import { z } from "zod";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware.js";
 import { OnboardingProfile, SavedContent } from "../../models/index.js";
 import { sendError, sendSuccess } from "../../utils/apiResponse.js";
-import { RECIPE_CATALOG, recipeBySlug, type RecipeRecord } from "../../services/member/recipeCatalog.js";
-import { WORKOUT_CATALOG, workoutBySlug, type WorkoutRecord } from "../../services/member/workoutCatalog.js";
+import { type RecipeRecord } from "../../services/member/recipeCatalog.js";
+import { type WorkoutRecord } from "../../services/member/workoutCatalog.js";
+import { recipeLibrary, workoutLibrary } from "../../services/member/publishedLibrary.js";
 
 const recipeSaveSchema = z.object({
   saved: z.boolean(),
@@ -75,7 +76,7 @@ export async function listRecipes(req: AuthenticatedRequest, res: Response, next
   try {
     const userId = memberId(req, res);
     if (!userId) return;
-    const ordered = rankByFocus(RECIPE_CATALOG, await focusText(userId));
+    const ordered = rankByFocus(await recipeLibrary(), await focusText(userId));
     const rows = await SavedContent.findAll({ where: { userId, kind: "recipe" } });
     sendSuccess(res, 200, "Recipes", {
       items: ordered.map((item) => publicRecipe(item, rows.find((row) => row.slug === item.slug) ?? null)),
@@ -89,7 +90,7 @@ export async function getRecipe(req: AuthenticatedRequest, res: Response, next: 
   try {
     const userId = memberId(req, res);
     if (!userId) return;
-    const item = recipeBySlug(String(req.params.slug ?? ""));
+    const item = (await recipeLibrary()).find((entry) => entry.slug === String(req.params.slug ?? ""));
     if (!item) {
       sendError(res, 404, "This recipe is not in the library");
       return;
@@ -105,7 +106,7 @@ export async function saveRecipe(req: AuthenticatedRequest, res: Response, next:
   try {
     const userId = memberId(req, res);
     if (!userId) return;
-    const item = recipeBySlug(String(req.params.slug ?? ""));
+    const item = (await recipeLibrary()).find((entry) => entry.slug === String(req.params.slug ?? ""));
     if (!item) {
       sendError(res, 404, "This recipe is not in the library");
       return;
@@ -130,7 +131,7 @@ export async function listWorkouts(req: AuthenticatedRequest, res: Response, nex
   try {
     const userId = memberId(req, res);
     if (!userId) return;
-    const ordered = rankByFocus(WORKOUT_CATALOG, await focusText(userId));
+    const ordered = rankByFocus(await workoutLibrary(), await focusText(userId));
     const rows = await SavedContent.findAll({ where: { userId, kind: "workout" } });
     sendSuccess(res, 200, "Workouts", {
       items: ordered.map((item) => publicWorkout(item, rows.find((row) => row.slug === item.slug) ?? null)),
@@ -144,7 +145,7 @@ export async function getWorkout(req: AuthenticatedRequest, res: Response, next:
   try {
     const userId = memberId(req, res);
     if (!userId) return;
-    const item = workoutBySlug(String(req.params.slug ?? ""));
+    const item = (await workoutLibrary()).find((entry) => entry.slug === String(req.params.slug ?? ""));
     if (!item) {
       sendError(res, 404, "This session is not in the library");
       return;
@@ -160,7 +161,7 @@ export async function saveWorkout(req: AuthenticatedRequest, res: Response, next
   try {
     const userId = memberId(req, res);
     if (!userId) return;
-    const item = workoutBySlug(String(req.params.slug ?? ""));
+    const item = (await workoutLibrary()).find((entry) => entry.slug === String(req.params.slug ?? ""));
     if (!item) {
       sendError(res, 404, "This session is not in the library");
       return;

@@ -184,7 +184,10 @@ export interface EvidenceRetrievalResult {
   insufficientEvidence: boolean;
 }
 
-export function retrieveEvidence(query: EvidenceQuery): EvidenceRetrievalResult {
+export function retrieveEvidence(
+  query: EvidenceQuery,
+  skipIds: ReadonlySet<string> = new Set(),
+): EvidenceRetrievalResult {
   const queryParts: string[] = [];
   if (query.focusArea) queryParts.push(query.focusArea);
   for (const goal of query.goals ?? []) queryParts.push(goal);
@@ -201,6 +204,7 @@ export function retrieveEvidence(query: EvidenceQuery): EvidenceRetrievalResult 
   const scored: RetrievedEvidence[] = [];
 
   for (const record of APPROVED_EVIDENCE) {
+    if (skipIds.has(record.evidenceId)) continue;
     if (!AI_GATEWAY_CONFIG.evidence.allowedStatuses.includes(record.status)) continue;
     if (!isCitableRecord(record)) continue;
 

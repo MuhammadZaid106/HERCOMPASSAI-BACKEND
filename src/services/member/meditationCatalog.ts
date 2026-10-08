@@ -89,19 +89,25 @@ function frequentPractice(frequency: string | null | undefined): boolean {
   return frequency === "daily" || frequency === "weekly";
 }
 
-function matchedSession(focus: string | null | undefined): MeditationSession | undefined {
+function matchedSession(
+  focus: string | null | undefined,
+  sessions: MeditationSession[],
+): MeditationSession | undefined {
   const text = (focus ?? "").toLowerCase();
   if (!text) return undefined;
-  return MEDITATION_CATALOG.find(
+  return sessions.find(
     (item) => item.slug !== EVENING_SLUG && item.focusHints.some((hint) => text.includes(hint)),
   );
 }
 
-export function suggestionFor(input: {
-  plan: string | null | undefined;
-  meditationFrequency: string | null | undefined;
-  focus: string | null | undefined;
-}): { slug: string; sentence: string } {
+export function suggestionFor(
+  input: {
+    plan: string | null | undefined;
+    meditationFrequency: string | null | undefined;
+    focus: string | null | undefined;
+  },
+  sessions: MeditationSession[] = MEDITATION_CATALOG,
+): { slug: string; sentence: string } {
   const fullLibrary = input.plan === "plus" || input.plan === "premium";
   if (frequentPractice(input.meditationFrequency)) {
     return {
@@ -109,7 +115,7 @@ export function suggestionFor(input: {
       sentence: "You already set aside time for a practice, so the evening reset stays first.",
     };
   }
-  const match = fullLibrary ? matchedSession(input.focus) : undefined;
+  const match = fullLibrary ? matchedSession(input.focus, sessions) : undefined;
   if (match) {
     const text = (input.focus ?? "").toLowerCase();
     const topic = text.includes("sleep")
@@ -128,12 +134,17 @@ export function suggestionFor(input: {
   };
 }
 
-export function orderedSessions(input: {
-  plan: string | null | undefined;
-  meditationFrequency: string | null | undefined;
-  focus: string | null | undefined;
-}): MeditationSession[] {
-  const suggestion = suggestionFor(input);
-  const first = meditationBySlug(suggestion.slug) ?? MEDITATION_CATALOG[0];
-  return [first, ...MEDITATION_CATALOG.filter((item) => item.slug !== first.slug)];
+export function orderedSessions(
+  input: {
+    plan: string | null | undefined;
+    meditationFrequency: string | null | undefined;
+    focus: string | null | undefined;
+  },
+  sessions: MeditationSession[] = MEDITATION_CATALOG,
+): MeditationSession[] {
+  if (sessions.length === 0) return [];
+  const suggestion = suggestionFor(input, sessions);
+  const first = sessions.find((item) => item.slug === suggestion.slug) ?? sessions[0];
+  if (!first) return [];
+  return [first, ...sessions.filter((item) => item.slug !== first.slug)];
 }

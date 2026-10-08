@@ -7,12 +7,12 @@ import { resolveMemberPlan } from "../../services/member/planCatalog.js";
 import {
   MEDITATION_SOURCE,
   PLUS_MEDITATION_LINE,
-  meditationBySlug,
   meditationIncluded,
   orderedSessions,
   suggestionFor,
   type MeditationSession,
 } from "../../services/member/meditationCatalog.js";
+import { meditationLibrary } from "../../services/member/publishedLibrary.js";
 
 const saveSchema = z.object({
   saved: z.boolean(),
@@ -76,12 +76,13 @@ export async function listMeditations(req: AuthenticatedRequest, res: Response, 
     const userId = memberId(req, res);
     if (!userId) return;
     const context = await practiceContext(userId);
-    const suggestion = suggestionFor(context);
+    const sessions = await meditationLibrary();
+    const suggestion = suggestionFor(context, sessions);
     const rows = await SavedContent.findAll({ where: { userId, kind: "meditation" } });
     sendSuccess(res, 200, "Meditation", {
       suggestion: suggestion.sentence,
       suggestedSlug: suggestion.slug,
-      items: orderedSessions(context).map((item) =>
+      items: orderedSessions(context, sessions).map((item) =>
         publicSession(
           item,
           context.plan,
@@ -101,13 +102,14 @@ export async function getMeditation(req: AuthenticatedRequest, res: Response, ne
   try {
     const userId = memberId(req, res);
     if (!userId) return;
-    const item = meditationBySlug(String(req.params.slug ?? ""));
+    const item = (await meditationLibrary()).find((entry) => entry.slug === String(req.params.slug ?? ""));
     if (!item) {
       sendError(res, 404, "This session is not in the library");
       return;
     }
     const context = await practiceContext(userId);
-    const suggestion = suggestionFor(context);
+    const sessions = await meditationLibrary();
+    const suggestion = suggestionFor(context, sessions);
     const row = await SavedContent.findOne({ where: { userId, kind: "meditation", slug: item.slug } });
     sendSuccess(res, 200, "Meditation", publicSession(item, context.plan, suggestion.slug, suggestion.sentence, row, true));
   } catch (error) {
@@ -119,7 +121,8 @@ export async function saveMeditation(req: AuthenticatedRequest, res: Response, n
   try {
     const userId = memberId(req, res);
     if (!userId) return;
-    const item = meditationBySlug(String(req.params.slug ?? ""));
+    const sessions = await meditationLibrary();
+    const item = sessions.find((entry) => entry.slug === String(req.params.slug ?? ""));
     if (!item) {
       sendError(res, 404, "This session is not in the library");
       return;
@@ -139,7 +142,7 @@ export async function saveMeditation(req: AuthenticatedRequest, res: Response, n
       defaults: { userId, kind: "meditation", slug: item.slug },
     });
     await row.update({ saved: parsed.data.saved, started: parsed.data.started });
-    const suggestion = suggestionFor(context);
+    const suggestion = suggestionFor(context, sessions);
     sendSuccess(res, 200, "Session updated", publicSession(item, context.plan, suggestion.slug, suggestion.sentence, row, true));
   } catch (error) {
     next(error);

@@ -49,6 +49,8 @@ export interface AssembleContextParams {
   logSignals?: Record<string, string | number | boolean>;
   /** When set, retrieval is replaced by these approved cards and nothing else. */
   pinnedEvidenceIds?: string[];
+  /** Staff-retired catalog ids. Retrieval and pinned cards both skip these. */
+  retiredEvidenceIds?: ReadonlySet<string>;
 }
 
 const FOCUS_HINTS: Record<string, string[]> = {
@@ -302,9 +304,11 @@ function collectGoals(profile: OnboardingProfile): string[] {
 function pinEvidence(
   retrieved: ReturnType<typeof retrieveEvidence>,
   pinnedEvidenceIds: string[] | undefined,
+  skipIds: ReadonlySet<string>,
 ): ReturnType<typeof retrieveEvidence> {
   if (!pinnedEvidenceIds || pinnedEvidenceIds.length === 0) return retrieved;
   const items = pinnedEvidenceIds.flatMap((evidenceId) => {
+    if (skipIds.has(evidenceId)) return [];
     const record = getEvidenceById(evidenceId);
     if (!record) return [];
     if (!AI_GATEWAY_CONFIG.evidence.allowedStatuses.includes(record.status)) return [];
@@ -374,13 +378,17 @@ export function buildContext(params: AssembleContextParams): GatewayContext {
     topicHints.push(...FOCUS_HINTS.symptom_pattern);
   }
 
-  const retrieved = retrieveEvidence({
-    focusArea,
-    goals: [...goals, ...partnerScope],
-    reportedAreas,
-    topicHints: Array.from(new Set(topicHints)),
-  });
-  const retrieval = pinEvidence(retrieved, params.pinnedEvidenceIds);
+  const skipIds = params.retiredEvidenceIds ?? new Set<string>();
+  const retrieved = retrieveEvidence(
+    {
+      focusArea,
+      goals: [...goals, ...partnerScope],
+      reportedAreas,
+      topicHints: Array.from(new Set(topicHints)),
+    },
+    skipIds,
+  );
+  const retrieval = pinEvidence(retrieved, params.pinnedEvidenceIds, skipIds);
 
   if (retrieval.insufficientEvidence) {
     contextLog.warn(
