@@ -36,6 +36,7 @@ import type {
   SciFinding,
 } from "../../ai/types/index.js";
 import { buildContext, type ContextSource } from "./contextAssembler.js";
+import { loadRetiredEvidenceIds } from "./retiredEvidence.js";
 import { assemblePrompt } from "./promptService.js";
 import { resolveRoute } from "./modelRouter.js";
 import { buildContextCitations, verifyAndRepair } from "./citationVerifier.js";
@@ -469,6 +470,13 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
     return failWith(rejection.statusCode, rejection.message, [rejection.finding]);
   }
 
+  let retiredEvidenceIds = new Set<string>();
+  try {
+    retiredEvidenceIds = await loadRetiredEvidenceIds();
+  } catch (error) {
+    gatewayLog.warn(`Retired evidence ids were not loaded for request ${requestId}`, error);
+  }
+
   // ─── Steps 4-8: consent, deterministic context, evidence retrieval ──────────
   const context: GatewayContext = buildContext({
     feature: invocation.feature,
@@ -484,6 +492,7 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
     authorizedSignals: invocation.authorizedSignals,
     logSignals: invocation.logSignals,
     pinnedEvidenceIds: invocation.pinnedEvidenceIds,
+    retiredEvidenceIds,
   });
 
   draft.evidenceVersion = context.evidenceVersion;

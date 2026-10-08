@@ -45,6 +45,8 @@ export async function connectDB(): Promise<void> {
     // Sync models (alter: false prevents destructive DDL)
     await sequelize.sync({ alter: false });
     dbLog.info("✅ Sequelize models synchronized successfully with Neon database");
+    const { seedAdminDesk } = await import("../services/admin/seedAdminDesk.js");
+    await seedAdminDesk();
   } catch (err) {
     dbLog.error("❌ Failed to connect to Neon PostgreSQL database:", err);
   }

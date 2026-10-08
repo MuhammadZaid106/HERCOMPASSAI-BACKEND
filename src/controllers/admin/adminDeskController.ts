@@ -12,6 +12,7 @@ import {
   searchAdminEvidence,
   searchAdminUsers,
 } from "../../services/admin/adminDesk.js";
+import { EvidenceStatus } from "../../models/index.js";
 import {
   adminEvidenceQuerySchema,
   adminMetricsQuerySchema,
@@ -75,6 +76,7 @@ export async function getAdminUsers(
     const result = await searchAdminUsers(parsed.data.q, parsed.data.page, {
       plan: parsed.data.plan,
       role: parsed.data.role,
+      account: parsed.data.account,
     });
     adminLog.info(`Admin user search returned ${result.users.length} of ${result.total}`);
     sendSuccess(res, 200, "Accounts retrieved", result);
@@ -209,9 +211,14 @@ export async function getAdminEvidence(
       return;
     }
     const records = searchAdminEvidence(parsed.data.q);
+    const retiredRows = await EvidenceStatus.findAll({
+      where: { status: "retired" },
+      attributes: ["evidenceId"],
+    });
+    const retired = new Set(retiredRows.map((row) => row.evidenceId));
     adminLog.info(`Admin evidence search returned ${records.length}`);
     sendSuccess(res, 200, "Evidence catalog retrieved", {
-      records,
+      records: records.map((record) => ({ ...record, retired: retired.has(record.evidenceId) })),
       clinicianReview: "pending-named-clinician",
     });
   } catch (error) {

@@ -25,6 +25,12 @@ import { CommunityNote } from "./CommunityNote.js";
 import { PartnerAuditLog } from "./PartnerAuditLog.js";
 import { PartnerLessonProgress } from "./PartnerLessonProgress.js";
 import { PartnerDigest } from "./PartnerDigest.js";
+import { AppSetting } from "./AppSetting.js";
+import { BetaCohort } from "./BetaCohort.js";
+import { BetaMember } from "./BetaMember.js";
+import { ContentPiece } from "./ContentPiece.js";
+import { ProductFeedback } from "./ProductFeedback.js";
+import { EvidenceStatus } from "./EvidenceStatus.js";
 
 // Setup Model Associations
 User.hasMany(RefreshToken, {
@@ -143,6 +149,17 @@ User.hasMany(CommunityNote, { foreignKey: "userId", as: "communityNotes", onDele
 CommunityNote.belongsTo(User, { foreignKey: "userId", as: "author" });
 CommunityNote.belongsTo(User, { foreignKey: "reviewedBy", as: "reviewer" });
 
+BetaCohort.hasMany(BetaMember, { foreignKey: "cohortId", as: "members", onDelete: "CASCADE" });
+BetaMember.belongsTo(BetaCohort, { foreignKey: "cohortId", as: "cohort" });
+BetaMember.belongsTo(User, { foreignKey: "userId", as: "account" });
+SupportRequest.hasOne(ProductFeedback, {
+  foreignKey: "supportRequestId",
+  as: "productReview",
+  onDelete: "CASCADE",
+});
+ProductFeedback.belongsTo(SupportRequest, { foreignKey: "supportRequestId", as: "supportRequest" });
+ProductFeedback.belongsTo(User, { foreignKey: "ownerUserId", as: "owner" });
+
 export {
   sequelize,
   connectDB,
@@ -172,4 +189,10 @@ export {
   PartnerAuditLog,
   PartnerLessonProgress,
   PartnerDigest,
+  AppSetting,
+  BetaCohort,
+  BetaMember,
+  ContentPiece,
+  ProductFeedback,
+  EvidenceStatus,
 };

@@ -26,6 +26,7 @@ export const adminUserQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(1000).default(1),
   plan: z.enum(["free", "plus", "premium"]).optional(),
   role: z.enum(["member", "partner", "admin", "developer"]).optional(),
+  account: z.enum(["confirmed", "unconfirmed"]).optional(),
 });
 
 export const adminPageQuerySchema = z.object({
@@ -42,6 +43,54 @@ export const adminEvidenceQuerySchema = z.object({
 
 export const adminMetricsQuerySchema = z.object({
   days: z.coerce.number().int().refine((value) => value === 14 || value === 30).default(14),
+});
+
+export const adminBetaQuerySchema = z.object({
+  cohort: z.string().trim().max(40).optional(),
+});
+
+export const adminBetaMemberSchema = z.object({
+  cohortId: z.string().uuid(),
+  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+});
+
+export const adminBetaStageSchema = z.object({
+  stage: z.enum(["invited", "screened"]),
+});
+
+export const adminContentQuerySchema = z.object({
+  kind: z.enum(["recipe", "workout", "meditation"]).optional(),
+});
+
+export const adminProductNoteSchema = z.object({
+  theme: z.enum([
+    "value",
+    "friction",
+    "trust",
+    "ai_quality",
+    "safety",
+    "partner",
+    "workplace",
+    "retention",
+    "missing",
+    "payment",
+  ]),
+  severity: z.enum(["low", "medium", "high"]),
+  decision: z.enum(["open", "accepted", "parked"]),
+  resolution: z.string().trim().max(500).default(""),
+});
+
+export const adminEvidenceStatusSchema = z.object({
+  status: z.enum(["active", "retired"]),
+  note: z.string().trim().max(280).default(""),
+});
+
+export const adminSystemQuerySchema = z.object({
+  probe: z.enum(["gateway"]).optional(),
+});
+
+export const adminSettingsSchema = z.object({
+  foundingCap: z.coerce.number().int().min(1).max(10000),
 });
 
 export const adminUserIdSchema = z.string().uuid();

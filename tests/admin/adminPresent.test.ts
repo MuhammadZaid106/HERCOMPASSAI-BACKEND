@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 import {
   accountStatus,
   countsForInvites,
+  formatDuration,
+  medianSeconds,
   fillDayCounts,
   firstName,
   likePattern,
@@ -31,6 +33,16 @@ describe("admin presentation", () => {
       { day: "2026-10-05", count: 2 },
       { day: "2026-10-06", count: 0 },
     ]);
+  });
+
+  it("takes the middle duration and writes it as days, hours, and minutes", () => {
+    assert.equal(medianSeconds([]), null);
+    assert.equal(medianSeconds([30, 10, 20]), 20);
+    assert.equal(medianSeconds([10, 30]), 20);
+    assert.equal(formatDuration(0), "0m");
+    assert.equal(formatDuration(125), "2m");
+    assert.equal(formatDuration(3 * 3600 + 42 * 60), "3h 42m");
+    assert.equal(formatDuration(2 * 86400), "2d");
   });
 
   it("reads account confirmation and the latest invite only", () => {

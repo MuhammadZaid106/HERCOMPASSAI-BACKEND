@@ -19,7 +19,9 @@ import {
   countsForPlans,
   fillDayCounts,
   firstName,
+  formatDuration,
   likePattern,
+  medianSeconds,
   partnerStateForUser,
   scopeList,
   utcDayKeys,
@@ -58,8 +60,8 @@ export interface AdminMetrics {
   snapshots: number;
   openAiFlags: number;
   acceptedPartnerConnections: number;
-  /** Null until a measured duration is stored. */
-  medianTtfv: null;
+  /** Middle time from account creation to the saved snapshot. Null when nobody has one. */
+  medianTtfv: string | null;
   signupsByDay: Array<{ day: string; count: number }>;
   membersByPlan: Array<{ plan: PlanId; count: number }>;
   invitesByState: Array<{ status: InviteState; count: number }>;
@@ -96,7 +98,7 @@ async function scalar(sql: string, replacements?: Record<string, unknown>): Prom
 export async function loadAdminMetrics(now = new Date(), days = DAY_WINDOW): Promise<AdminMetrics> {
   const windowDays = days === 30 ? 30 : DAY_WINDOW;
   const start = utcWindowStart(windowDays, now);
-  const [members, snapshots, openAiFlags, acceptedPartnerConnections, signupRows, planRows, inviteRows, severityRows, flagTotal] =
+  const [members, snapshots, openAiFlags, acceptedPartnerConnections, signupRows, planRows, inviteRows, severityRows, flagTotal, durationRows] =
     await Promise.all([
       scalar(`SELECT COUNT(*)::int AS count FROM users WHERE role = 'member'`),
       scalar(`SELECT COUNT(*)::int AS count FROM personal_snapshots`),
@@ -128,16 +130,24 @@ export async function loadAdminMetrics(now = new Date(), days = DAY_WINDOW): Pro
         { type: QueryTypes.SELECT },
       ),
       scalar(`SELECT COUNT(*)::int AS count FROM ai_flags`),
+      sequelize.query<{ seconds: number }>(
+        `SELECT EXTRACT(EPOCH FROM (s.created_at - u.created_at)) AS seconds
+         FROM personal_snapshots s
+         INNER JOIN users u ON u.id = s.user_id
+         WHERE u.role = 'member' AND s.created_at >= u.created_at`,
+        { type: QueryTypes.SELECT },
+      ),
     ]);
 
   const severity = new Map(severityRows.map((row) => [row.severity, asCount(row.count)]));
+  const median = medianSeconds(durationRows.map((row) => Number(row.seconds)));
 
   return {
     members,
     snapshots,
     openAiFlags,
     acceptedPartnerConnections,
-    medianTtfv: null,
+    medianTtfv: median === null ? null : formatDuration(median),
     signupsByDay: fillDayCounts(
       utcDayKeys(windowDays, now),
       signupRows.map((row) => ({ day: row.day, count: asCount(row.count) })),
@@ -208,7 +218,11 @@ const ACCOUNT_UUID =
 export async function searchAdminUsers(
   query: string,
   page: number,
-  filters: { plan?: "free" | "plus" | "premium"; role?: User["role"] } = {},
+  filters: {
+    plan?: "free" | "plus" | "premium";
+    role?: User["role"];
+    account?: "confirmed" | "unconfirmed";
+  } = {},
 ): Promise<{ users: AdminUserRow[]; total: number; page: number; pageSize: number }> {
   const trimmed = query.trim();
   const matches: WhereOptions[] = [
@@ -219,6 +233,7 @@ export async function searchAdminUsers(
   const where: WhereOptions = {
     ...(filters.plan ? { plan: filters.plan } : {}),
     ...(filters.role ? { role: filters.role } : {}),
+    ...(filters.account ? { emailVerified: filters.account === "confirmed" } : {}),
     ...(trimmed.length > 0 ? { [Op.or]: matches } : {}),
   };
 
@@ -305,10 +320,20 @@ export interface AdminPartnerActivity {
   createdAt: string;
 }
 
+export interface AdminPartnerSupportNote {
+  id: string;
+  userId: string;
+  memberFirstName: string;
+  topic: string;
+  message: string;
+  createdAt: string;
+}
+
 export async function loadAdminPartners(): Promise<{
   invitesByState: Array<{ status: InviteState; count: number }>;
   invites: AdminPartnerRow[];
   activity: AdminPartnerActivity[];
+  supportNotes: AdminPartnerSupportNote[];
 }> {
   const [inviteRows, invites, activityRows] = await Promise.all([
     sequelize.query<{ status: string; count: number }>(
@@ -342,6 +367,27 @@ export async function loadAdminPartners(): Promise<{
         });
   const nameById = new Map(members.map((member) => [member.id, firstName(member.name)]));
 
+  const supportRows = await sequelize.query<{
+    id: string;
+    user_id: string;
+    name: string;
+    topic: string;
+    message: string;
+    created_at: Date;
+  }>(
+    `SELECT sr.id, sr.user_id, u.name, sr.topic, sr.message, sr.created_at
+     FROM support_requests sr
+     INNER JOIN users u ON u.id = sr.user_id
+     WHERE sr.user_id IN (
+       SELECT member_user_id FROM partner_invites
+       UNION
+       SELECT partner_user_id FROM partner_invites WHERE partner_user_id IS NOT NULL
+     )
+     ORDER BY sr.created_at DESC
+     LIMIT 20`,
+    { type: QueryTypes.SELECT },
+  );
+
   return {
     invitesByState: countsForInvites(
       inviteRows.map((row) => ({ status: row.status, count: asCount(row.count) })),
@@ -374,6 +420,14 @@ export async function loadAdminPartners(): Promise<{
       result: row.result,
       memberFirstName: nameById.get(row.memberUserId ?? "") ?? "Member",
       createdAt: row.createdAt.toISOString(),
+    })),
+    supportNotes: supportRows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      memberFirstName: firstName(row.name),
+      topic: row.topic,
+      message: row.message,
+      createdAt: new Date(row.created_at).toISOString(),
     })),
   };
 }
