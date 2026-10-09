@@ -1,6 +1,7 @@
 import { Op, QueryTypes, type WhereOptions } from "sequelize";
 import { sequelize } from "../../config/db.js";
 import { ENTITLEMENTS, type EntitlementFeature } from "../../config/entitlements.js";
+import { isStripeConfigured } from "../../config/stripe.js";
 import { APPROVED_EVIDENCE } from "../../ai/evidence/approvedEvidence.js";
 import {
   AiAuditLog,
@@ -81,10 +82,23 @@ export interface AdminUserRow {
   createdAt: string;
 }
 
+export type SubscriptionStatusFilter = "none" | "active" | "trialing" | "past_due" | "canceled" | "other";
+
 export interface AdminUserDetail extends AdminUserRow {
   consent: "on" | "off" | "unknown";
   supportTickets: number;
   audit: AdminAuditLine[];
+  subscriptionStatus: SubscriptionStatusFilter;
+  hasStripeCustomer: boolean;
+}
+
+function normalizeSubscriptionStatus(value: string | null | undefined): SubscriptionStatusFilter {
+  const status = (value ?? "").trim().toLowerCase();
+  if (!status) return "none";
+  if (status === "active" || status === "trialing" || status === "past_due" || status === "canceled") {
+    return status;
+  }
+  return "other";
 }
 
 async function scalar(sql: string, replacements?: Record<string, unknown>): Promise<number> {
@@ -222,6 +236,7 @@ export async function searchAdminUsers(
     plan?: "free" | "plus" | "premium";
     role?: User["role"];
     account?: "confirmed" | "unconfirmed";
+    subscription?: SubscriptionStatusFilter;
   } = {},
 ): Promise<{ users: AdminUserRow[]; total: number; page: number; pageSize: number }> {
   const trimmed = query.trim();
@@ -230,10 +245,27 @@ export async function searchAdminUsers(
     { email: { [Op.iLike]: likePattern(trimmed) } },
   ];
   if (ACCOUNT_UUID.test(trimmed)) matches.push({ id: trimmed });
+  const subscriptionWhere =
+    filters.subscription === "none"
+      ? { [Op.or]: [{ subscriptionStatus: null }, { subscriptionStatus: "" }] }
+      : filters.subscription === "other"
+        ? {
+            subscriptionStatus: {
+              [Op.and]: [
+                { [Op.ne]: null },
+                { [Op.ne]: "" },
+                { [Op.notIn]: ["active", "trialing", "past_due", "canceled"] },
+              ],
+            },
+          }
+        : filters.subscription
+          ? { subscriptionStatus: filters.subscription }
+          : {};
   const where: WhereOptions = {
     ...(filters.plan ? { plan: filters.plan } : {}),
     ...(filters.role ? { role: filters.role } : {}),
     ...(filters.account ? { emailVerified: filters.account === "confirmed" } : {}),
+    ...subscriptionWhere,
     ...(trimmed.length > 0 ? { [Op.or]: matches } : {}),
   };
 
@@ -257,7 +289,9 @@ export async function searchAdminUsers(
 }
 
 export async function loadAdminUser(userId: string): Promise<AdminUserDetail | null> {
-  const user = await User.findByPk(userId, { attributes: [...USER_FIELDS] });
+  const user = await User.findByPk(userId, {
+    attributes: [...USER_FIELDS, "subscriptionStatus", "stripeCustomerId"],
+  });
   if (!user) return null;
   const [row] = await presentUsers([user]);
   const [profile, supportTickets, aiEvents, partnerEvents] = await Promise.all([
@@ -300,6 +334,8 @@ export async function loadAdminUser(userId: string): Promise<AdminUserDetail | n
     consent: profile ? (profile.partnerConsent ? "on" : "off") : "unknown",
     supportTickets,
     audit,
+    subscriptionStatus: normalizeSubscriptionStatus(user.subscriptionStatus),
+    hasStripeCustomer: Boolean(user.stripeCustomerId?.trim()),
   };
 }
 
@@ -440,16 +476,56 @@ export interface AdminPlanCard {
   included: string[];
 }
 
-export async function loadAdminPlans(): Promise<{ billingConnected: false; plans: AdminPlanCard[] }> {
-  const planRows = await sequelize.query<{ plan: string; count: number }>(
-    `SELECT plan, COUNT(*)::int AS count FROM users WHERE role = 'member' GROUP BY plan`,
-    { type: QueryTypes.SELECT },
-  );
+export interface SubscriptionStatusCount {
+  status: SubscriptionStatusFilter;
+  count: number;
+}
+
+export async function loadAdminPlans(): Promise<{
+  billingConnected: boolean;
+  plans: AdminPlanCard[];
+  subscriptionByStatus: SubscriptionStatusCount[];
+  stripeCustomers: number;
+  pastDue: number;
+}> {
+  const [planRows, statusRows, stripeCustomers] = await Promise.all([
+    sequelize.query<{ plan: string; count: number }>(
+      `SELECT plan, COUNT(*)::int AS count FROM users WHERE role = 'member' GROUP BY plan`,
+      { type: QueryTypes.SELECT },
+    ),
+    sequelize.query<{ status: string | null; count: number }>(
+      `SELECT subscription_status AS status, COUNT(*)::int AS count
+       FROM users
+       WHERE role = 'member'
+       GROUP BY subscription_status`,
+      { type: QueryTypes.SELECT },
+    ),
+    scalar(
+      `SELECT COUNT(*)::int AS count
+       FROM users
+       WHERE role = 'member'
+         AND stripe_customer_id IS NOT NULL
+         AND btrim(stripe_customer_id) <> ''`,
+    ),
+  ]);
   const counts = countsForPlans(planRows.map((row) => ({ plan: row.plan, count: asCount(row.count) })));
   const countByPlan = new Map(counts.map((row) => [row.plan, row.count]));
 
+  const byStatus: Record<SubscriptionStatusFilter, number> = {
+    none: 0,
+    active: 0,
+    trialing: 0,
+    past_due: 0,
+    canceled: 0,
+    other: 0,
+  };
+  for (const row of statusRows) {
+    const key = normalizeSubscriptionStatus(row.status);
+    byStatus[key] += asCount(row.count);
+  }
+
   return {
-    billingConnected: false,
+    billingConnected: isStripeConfigured(),
     plans: planSummaries.map((plan) => {
       const entitlement = ENTITLEMENTS[plan.id];
       const included = (Object.keys(entitlement.features) as EntitlementFeature[])
@@ -463,6 +539,12 @@ export async function loadAdminPlans(): Promise<{ billingConnected: false; plans
         included,
       };
     }),
+    subscriptionByStatus: (Object.keys(byStatus) as SubscriptionStatusFilter[]).map((status) => ({
+      status,
+      count: byStatus[status],
+    })),
+    stripeCustomers,
+    pastDue: byStatus.past_due,
   };
 }
 

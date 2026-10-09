@@ -77,6 +77,7 @@ export async function getAdminUsers(
       plan: parsed.data.plan,
       role: parsed.data.role,
       account: parsed.data.account,
+      subscription: parsed.data.subscription,
     });
     adminLog.info(`Admin user search returned ${result.users.length} of ${result.total}`);
     sendSuccess(res, 200, "Accounts retrieved", result);

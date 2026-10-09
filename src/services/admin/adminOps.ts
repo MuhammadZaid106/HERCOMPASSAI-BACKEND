@@ -6,6 +6,7 @@ import { env } from "../../config/env.js";
 import { APPROVED_EVIDENCE } from "../../ai/evidence/approvedEvidence.js";
 import { getProviderHealth } from "../../ai/providers/index.js";
 import { clinicianReviewSummary } from "../ai-gateway/evidenceService.js";
+import { isStripeConfigured } from "../../config/stripe.js";
 import { mailIsConfigured } from "../mail/sendMail.js";
 import {
   AppSetting,
@@ -47,12 +48,12 @@ async function foundingCap(): Promise<number> {
 
 export async function loadAdminSettings(): Promise<{
   foundingCap: number;
-  billingConnected: false;
+  billingConnected: boolean;
   mailConfigured: boolean;
 }> {
   return {
     foundingCap: await foundingCap(),
-    billingConnected: false,
+    billingConnected: isStripeConfigured(),
     mailConfigured: mailIsConfigured(),
   };
 }
@@ -486,8 +487,10 @@ export async function loadAdminSystem(probeGateway: boolean): Promise<SystemChec
   checks.push({
     id: "billing",
     label: "Billing",
-    status: "not_connected",
-    detail: "Billing is not connected.",
+    status: isStripeConfigured() ? "ready" : "not_connected",
+    detail: isStripeConfigured()
+      ? "Stripe keys are present on this server."
+      : "Billing is not connected.",
   });
 
   return checks;

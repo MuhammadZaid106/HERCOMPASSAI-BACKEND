@@ -27,6 +27,9 @@ export const adminUserQuerySchema = z.object({
   plan: z.enum(["free", "plus", "premium"]).optional(),
   role: z.enum(["member", "partner", "admin", "developer"]).optional(),
   account: z.enum(["confirmed", "unconfirmed"]).optional(),
+  subscription: z
+    .enum(["none", "active", "trialing", "past_due", "canceled", "other"])
+    .optional(),
 });
 
 export const adminPageQuerySchema = z.object({
