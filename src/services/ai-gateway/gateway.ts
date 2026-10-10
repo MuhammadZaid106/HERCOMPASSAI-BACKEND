@@ -45,6 +45,7 @@ import { assessSafety } from "./safetyService.js";
 import { runSci, SCI_VERSION } from "./sciValidator.js";
 import { buildDigestFallback, buildSnapshotFallback } from "./fallbackService.js";
 import { recordAiAudit } from "./auditService.js";
+import { recordAiExcerpt } from "./excerptService.js";
 
 /**
  * HerCompass AI Gateway.
@@ -422,6 +423,7 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
   const requestId = randomUUID();
   const taskType = TASK_BY_FEATURE[invocation.feature];
   const draft = newProvenance(taskType);
+  const excerptHolder = { input: "", output: "" };
 
   const finish = async (result: GatewayOutcome): Promise<GatewayResult> => {
     const provenance = finalizeProvenance(requestId, invocation.feature, draft);
@@ -433,6 +435,9 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
       promptChecksum: draft.promptChecksum,
       confidenceScore: draft.confidenceScore,
     });
+    if (excerptHolder.input || excerptHolder.output) {
+      await recordAiExcerpt(requestId, excerptHolder.input, excerptHolder.output);
+    }
     return response;
   };
 
@@ -624,6 +629,9 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
 
   draft.promptVersion = assembled.promptVersion;
   draft.promptChecksum = assembled.bundle.checksum;
+  excerptHolder.input = assembled.messages
+    .map((message) => `${message.role}: ${typeof message.content === "string" ? message.content : JSON.stringify(message.content)}`)
+    .join("\n\n");
 
   // ─── Step 11: generation, with transport-level fallback ─────────────────────
   let generation = null;
@@ -662,6 +670,7 @@ export async function runGateway(invocation: GatewayInvocation): Promise<Gateway
       draft.provider = generation.provider;
       draft.model = generation.model;
       draft.modelVersion = generation.modelVersion;
+      excerptHolder.output = generation.content ?? "";
       lastErrorKind = null;
       break;
     } catch (error) {

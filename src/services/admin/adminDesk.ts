@@ -68,6 +68,16 @@ export interface AdminMetrics {
   invitesByState: Array<{ status: InviteState; count: number }>;
   /** Null when no flag rows exist, so the screen does not read as "no problems". */
   flagSeverity: { low: number; medium: number; high: number } | null;
+  scorecard: {
+    p0: number | null;
+    p1: number | null;
+    p2: number | null;
+    p3: number | null;
+    goldCasePassRate: string | null;
+    citationIssues: number | null;
+    nonDiagnosticViolations: number | null;
+    latestRunAt: string | null;
+  };
 }
 
 export interface AdminUserRow {
@@ -112,7 +122,8 @@ async function scalar(sql: string, replacements?: Record<string, unknown>): Prom
 export async function loadAdminMetrics(now = new Date(), days = DAY_WINDOW): Promise<AdminMetrics> {
   const windowDays = days === 30 ? 30 : DAY_WINDOW;
   const start = utcWindowStart(windowDays, now);
-  const [members, snapshots, openAiFlags, acceptedPartnerConnections, signupRows, planRows, inviteRows, severityRows, flagTotal, durationRows] =
+  const { loadScorecardSummary } = await import("./adminEvaluation.js");
+  const [members, snapshots, openAiFlags, acceptedPartnerConnections, signupRows, planRows, inviteRows, severityRows, flagTotal, durationRows, scorecard] =
     await Promise.all([
       scalar(`SELECT COUNT(*)::int AS count FROM users WHERE role = 'member'`),
       scalar(`SELECT COUNT(*)::int AS count FROM personal_snapshots`),
@@ -151,6 +162,7 @@ export async function loadAdminMetrics(now = new Date(), days = DAY_WINDOW): Pro
          WHERE u.role = 'member' AND s.created_at >= u.created_at`,
         { type: QueryTypes.SELECT },
       ),
+      loadScorecardSummary(),
     ]);
 
   const severity = new Map(severityRows.map((row) => [row.severity, asCount(row.count)]));
@@ -172,6 +184,16 @@ export async function loadAdminMetrics(now = new Date(), days = DAY_WINDOW): Pro
     invitesByState: countsForInvites(
       inviteRows.map((row) => ({ status: row.status, count: asCount(row.count) })),
     ),
+    scorecard: {
+      p0: scorecard.p0,
+      p1: scorecard.p1,
+      p2: scorecard.p2,
+      p3: scorecard.p3,
+      goldCasePassRate: scorecard.goldCasePassRate,
+      citationIssues: scorecard.citationIssues,
+      nonDiagnosticViolations: scorecard.nonDiagnosticViolations,
+      latestRunAt: scorecard.latestRunAt,
+    },
     flagSeverity:
       flagTotal === 0
         ? null
@@ -481,14 +503,9 @@ export interface SubscriptionStatusCount {
   count: number;
 }
 
-export async function loadAdminPlans(): Promise<{
-  billingConnected: boolean;
-  plans: AdminPlanCard[];
-  subscriptionByStatus: SubscriptionStatusCount[];
-  stripeCustomers: number;
-  pastDue: number;
-}> {
-  const [planRows, statusRows, stripeCustomers] = await Promise.all([
+export async function loadAdminPlans() {
+  const { loadBillingDesk } = await import("./adminBillingDesk.js");
+  const [planRows, statusRows, stripeCustomers, billingDesk] = await Promise.all([
     sequelize.query<{ plan: string; count: number }>(
       `SELECT plan, COUNT(*)::int AS count FROM users WHERE role = 'member' GROUP BY plan`,
       { type: QueryTypes.SELECT },
@@ -507,6 +524,7 @@ export async function loadAdminPlans(): Promise<{
          AND stripe_customer_id IS NOT NULL
          AND btrim(stripe_customer_id) <> ''`,
     ),
+    loadBillingDesk(),
   ]);
   const counts = countsForPlans(planRows.map((row) => ({ plan: row.plan, count: asCount(row.count) })));
   const countByPlan = new Map(counts.map((row) => [row.plan, row.count]));
@@ -545,6 +563,7 @@ export async function loadAdminPlans(): Promise<{
     })),
     stripeCustomers,
     pastDue: byStatus.past_due,
+    billingDesk,
   };
 }
 

@@ -1,8 +1,9 @@
 import { Op, type WhereOptions } from "sequelize";
-import { AiAuditLog, AiFeedback, AiFlag } from "../../models/index.js";
+import { AiAuditLog, AiFeedback, AiFlag, AiFlagCase, AiRequestExcerpt } from "../../models/index.js";
 import { env } from "../../config/env.js";
 import { logger } from "../../utils/logger.js";
 import type { GatewayFeature } from "../../ai/types/index.js";
+import { truncateExcerpt } from "./excerptService.js";
 
 /**
  * User feedback and the internal review queue (spec Step 26 / Section 15).
@@ -61,6 +62,12 @@ export interface ReviewQueueItem {
   latencyMs: number | null;
   /** The member's own words, when they left any. */
   memberComment: string | null;
+  hasReviewCase: boolean;
+  inputExcerpt: string | null;
+  outputExcerpt: string | null;
+  lastRetestAt: string | null;
+  lastRetestPassed: boolean | null;
+  lastRetestNotes: string | null;
 }
 
 /**
@@ -107,7 +114,7 @@ export async function recordAiFeedback(
 
   const { reason, severity } = mapping;
 
-  await AiFlag.create({
+  const flag = await AiFlag.create({
     requestId: input.requestId,
     userId: input.userId,
     feature: input.feature,
@@ -116,6 +123,24 @@ export async function recordAiFeedback(
     detail: input.comment ?? null,
     reviewStatus: "open",
   });
+
+  const [excerpt, audit] = await Promise.all([
+    AiRequestExcerpt.findByPk(input.requestId),
+    AiAuditLog.findByPk(input.requestId),
+  ]);
+  if (excerpt || audit) {
+    const retainedUntil = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+    await AiFlagCase.create({
+      flagId: flag.id,
+      inputExcerpt: truncateExcerpt(excerpt?.inputExcerpt ?? ""),
+      outputExcerpt: truncateExcerpt(excerpt?.outputExcerpt ?? ""),
+      citationIds: audit?.citationIds ?? null,
+      sciFindingCodes: audit?.sciFindingCodes ?? null,
+      resultStatus: audit?.resultStatus ?? null,
+      safetyStatus: audit?.safetyStatus ?? null,
+      retainedUntil,
+    });
+  }
 
   feedbackLog.info(
     `AI flag opened for request ${input.requestId} (reason=${reason}, severity=${severity}).`
@@ -168,7 +193,10 @@ export async function listReviewQueue(
     ],
     limit,
     offset,
-    include: [{ model: AiAuditLog, as: "aiEvent", required: false }],
+    include: [
+      { model: AiAuditLog, as: "aiEvent", required: false },
+      { model: AiFlagCase, as: "reviewCase", required: false },
+    ],
   });
 
   const total = await AiFlag.count({ where });
@@ -194,6 +222,9 @@ export async function listReviewQueue(
     total,
     flags: rows.map((flag) => {
       const event = flag.aiEvent as AiAuditLog | undefined;
+      const reviewCase = (flag as AiFlag & { reviewCase?: AiFlagCase }).reviewCase;
+      const retained =
+        reviewCase && reviewCase.retainedUntil.getTime() >= Date.now() ? reviewCase : null;
       return {
         id: flag.id,
         requestId: flag.requestId,
@@ -206,15 +237,49 @@ export async function listReviewQueue(
         reviewedBy: flag.reviewedBy,
         reviewedAt: flag.reviewedAt ?? null,
         createdAt: flag.createdAt,
-        citationIds: event?.citationIds ?? null,
-        resultStatus: event?.resultStatus ?? null,
-        safetyStatus: event?.safetyStatus ?? null,
-        sciFindingCodes: event?.sciFindingCodes ?? null,
+        citationIds: retained?.citationIds ?? event?.citationIds ?? null,
+        resultStatus: retained?.resultStatus ?? event?.resultStatus ?? null,
+        safetyStatus: retained?.safetyStatus ?? event?.safetyStatus ?? null,
+        sciFindingCodes: retained?.sciFindingCodes ?? event?.sciFindingCodes ?? null,
         latencyMs: event?.latencyMs ?? null,
         memberComment: commentByRequest.get(flag.requestId)?.comment ?? null,
+        hasReviewCase: Boolean(retained),
+        inputExcerpt: retained?.inputExcerpt || null,
+        outputExcerpt: retained?.outputExcerpt || null,
+        lastRetestAt: retained?.lastRetestAt?.toISOString() ?? null,
+        lastRetestPassed: retained?.lastRetestPassed ?? null,
+        lastRetestNotes: retained?.lastRetestNotes || null,
       };
     }),
   };
+}
+
+const RETEST_DIAGNOSTIC =
+  /\b(you have|diagnosed with|your diagnosis|prescribe|prescription for|you suffer from)\b/i;
+
+/** Software retest on the retained output — does not train a model. */
+export async function retestFlag(flagId: string): Promise<{
+  ok: boolean;
+  passed: boolean | null;
+  notes: string;
+}> {
+  const reviewCase = await AiFlagCase.findByPk(flagId);
+  if (!reviewCase || reviewCase.retainedUntil.getTime() < Date.now()) {
+    return { ok: false, passed: null, notes: "Not retained for this event." };
+  }
+  const text = reviewCase.outputExcerpt.trim();
+  const issues: string[] = [];
+  if (!text) issues.push("empty_output");
+  if (RETEST_DIAGNOSTIC.test(text)) issues.push("non_diagnostic_violation");
+  const passed = issues.length === 0;
+  reviewCase.lastRetestAt = new Date();
+  reviewCase.lastRetestPassed = passed;
+  reviewCase.lastRetestNotes = passed
+    ? "Retest passed software safety checks on the retained output."
+    : `Retest found: ${issues.join(", ")}`;
+  await reviewCase.save();
+  feedbackLog.info(`AI flag ${flagId} retested (passed=${passed})`);
+  return { ok: true, passed, notes: reviewCase.lastRetestNotes };
 }
 
 /**

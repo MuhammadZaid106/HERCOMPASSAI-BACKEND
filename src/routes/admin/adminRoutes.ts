@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { requireStaff } from "../../middleware/roleMiddleware.js";
-import { listAiFlags, updateAiFlag, getMemberAiUsage } from "../../controllers/admin/adminController.js";
+import { listAiFlags, updateAiFlag, retestAiFlag, getMemberAiUsage } from "../../controllers/admin/adminController.js";
 import {
   getAdminAudit,
   getAdminEvidence,
@@ -16,7 +16,9 @@ import { listCommunityNotes, reviewCommunityNote } from "../../controllers/admin
 import {
   getAdminBeta,
   getAdminContent,
+  getAdminEvidenceSubmissions,
   getAdminProductNotes,
+  getAdminScorecard,
   getAdminSettings,
   getAdminSystem,
   patchAdminBetaMember,
@@ -26,6 +28,9 @@ import {
   patchAdminSettings,
   postAdminBetaMember,
   postAdminContent,
+  postAdminEvaluationRun,
+  postAdminEvidence,
+  postAdminGrandfathered,
 } from "../../controllers/admin/adminOpsController.js";
 
 const router: Router = Router();
@@ -42,6 +47,8 @@ router.get("/plans", getAdminPlans);
 router.get("/audit", getAdminAudit);
 router.get("/support", getAdminSupport);
 router.get("/evidence", getAdminEvidence);
+router.get("/evidence-submissions", getAdminEvidenceSubmissions);
+router.post("/evidence", postAdminEvidence);
 router.patch("/evidence/:evidenceId", patchAdminEvidence);
 router.get("/system", getAdminSystem);
 router.get("/beta", getAdminBeta);
@@ -54,9 +61,13 @@ router.get("/product-notes", getAdminProductNotes);
 router.patch("/product-notes/:id", patchAdminProductNote);
 router.get("/settings", getAdminSettings);
 router.patch("/settings", patchAdminSettings);
+router.get("/scorecard", getAdminScorecard);
+router.post("/evaluation/run", postAdminEvaluationRun);
+router.post("/grandfathered", postAdminGrandfathered);
 
 router.get("/ai-flags", listAiFlags);
 router.patch("/ai-flags/:id", updateAiFlag);
+router.post("/ai-flags/:id/retest", retestAiFlag);
 
 /** Per-member AI allowance, for support. */
 router.get("/ai-usage/:userId", getMemberAiUsage);

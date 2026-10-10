@@ -11,18 +11,25 @@ import {
   loadAdminSettings,
   loadAdminSystem,
   loadProductNotes,
-  saveFoundingCap,
+  listEvidenceSubmissions,
+  saveAdminSettings,
   saveProductNote,
   setBetaStage,
+  setEvidenceLifecycle,
   setEvidenceRetired,
+  submitEvidenceSource,
   updateAdminContent,
 } from "../../services/admin/adminOps.js";
+import { upsertGrandfathered } from "../../services/admin/adminBillingDesk.js";
+import { runBaselineEvaluation, loadScorecardSummary } from "../../services/admin/adminEvaluation.js";
 import {
   adminBetaMemberSchema,
   adminBetaQuerySchema,
   adminBetaStageSchema,
   adminContentQuerySchema,
   adminEvidenceStatusSchema,
+  adminEvidenceSubmitSchema,
+  adminGrandfatheredSchema,
   adminPageQuerySchema,
   adminProductNoteSchema,
   adminSettingsSchema,
@@ -171,6 +178,10 @@ export async function postAdminContent(req: AuthenticatedRequest, res: Response,
       sendError(res, 409, "A piece with that slug already exists.");
       return;
     }
+    if (piece === "invalid_evidence") {
+      sendError(res, 400, "Evidence explanations need active catalog evidence ids.");
+      return;
+    }
     adminLog.info(`Admin content piece created (${piece.kind})`);
     sendSuccess(res, 201, "Draft saved", { piece });
   } catch (error) {
@@ -196,6 +207,10 @@ export async function patchAdminContent(req: AuthenticatedRequest, res: Response
     }
     if (piece === "invalid") {
       sendError(res, 400, "Those fields do not match this kind of piece");
+      return;
+    }
+    if (piece === "invalid_evidence") {
+      sendError(res, 400, "Evidence explanations need active catalog evidence ids.");
       return;
     }
     adminLog.info("Admin content piece updated");
@@ -271,12 +286,12 @@ export async function patchAdminSettings(req: AuthenticatedRequest, res: Respons
     }
     const parsed = adminSettingsSchema.safeParse(req.body);
     if (!parsed.success) {
-      sendError(res, 400, "Enter a cap between 1 and 10000");
+      sendError(res, 400, "Check the founding cap, trial rules, and price labels");
       return;
     }
-    const foundingCap = await saveFoundingCap(parsed.data.foundingCap);
-    adminLog.info("Admin founding cap updated");
-    sendSuccess(res, 200, "Cap saved", { foundingCap });
+    const settings = await saveAdminSettings(parsed.data);
+    adminLog.info("Admin product settings updated");
+    sendSuccess(res, 200, "Settings saved", settings);
   } catch (error) {
     next(error);
   }
@@ -292,16 +307,158 @@ export async function patchAdminEvidence(req: AuthenticatedRequest, res: Respons
     const parsed = adminEvidenceStatusSchema.safeParse(req.body);
     const staffUserId = req.user?.userId;
     if (!evidenceId || !parsed.success || !staffUserId) {
-      sendError(res, 400, "Choose active or retired");
+      sendError(res, 400, "Choose a valid lifecycle status");
       return;
     }
-    const saved = await setEvidenceRetired(evidenceId, parsed.data.status, staffUserId, parsed.data.note);
+    if (parsed.data.status === "active" || parsed.data.status === "retired") {
+      const saved = await setEvidenceRetired(
+        evidenceId,
+        parsed.data.status,
+        staffUserId,
+        parsed.data.note,
+      );
+      if (saved) {
+        await setEvidenceLifecycle({
+          evidenceId,
+          status: parsed.data.status,
+          staffUserId,
+          note: parsed.data.note,
+          clinicianReviewerName: parsed.data.clinicianReviewerName,
+          reviewedBy: parsed.data.reviewedBy,
+        });
+        adminLog.info(`Admin evidence status set to ${parsed.data.status}`);
+        sendSuccess(res, 200, "Evidence status saved", { status: parsed.data.status });
+        return;
+      }
+    }
+    const saved = await setEvidenceLifecycle({
+      evidenceId,
+      status: parsed.data.status,
+      staffUserId,
+      note: parsed.data.note,
+      clinicianReviewerName: parsed.data.clinicianReviewerName,
+      reviewedBy: parsed.data.reviewedBy,
+    });
     if (!saved) {
-      sendError(res, 404, "That source is not in the approved catalog.");
+      sendError(res, 404, "That source is not in the catalog or submission list.");
       return;
     }
-    adminLog.info(`Admin evidence status set to ${parsed.data.status}`);
+    adminLog.info(`Admin evidence lifecycle set to ${parsed.data.status}`);
     sendSuccess(res, 200, "Evidence status saved", { status: parsed.data.status });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function postAdminEvidence(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!requireStaffActor(req)) {
+      sendError(res, 403, "This area is restricted to HerCompass staff.");
+      return;
+    }
+    const parsed = adminEvidenceSubmitSchema.safeParse(req.body);
+    const staffUserId = req.user?.userId;
+    if (!parsed.success || !staffUserId) {
+      sendError(res, 400, "Fill in the source fields (use an id like ev-nams-100)");
+      return;
+    }
+    const result = await submitEvidenceSource({ ...parsed.data, staffUserId });
+    if (result === "duplicate") {
+      sendError(res, 409, "That evidence id already exists.");
+      return;
+    }
+    adminLog.info(`Admin evidence submitted (${parsed.data.evidenceId})`);
+    sendSuccess(res, 201, "Source submitted", { evidenceId: parsed.data.evidenceId });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getAdminEvidenceSubmissions(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    if (!requireStaffActor(req)) {
+      sendError(res, 403, "This area is restricted to HerCompass staff.");
+      return;
+    }
+    const submissions = await listEvidenceSubmissions();
+    sendSuccess(res, 200, "Evidence submissions retrieved", { submissions });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function postAdminEvaluationRun(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    if (!requireStaffActor(req)) {
+      sendError(res, 403, "This area is restricted to HerCompass staff.");
+      return;
+    }
+    const staffUserId = req.user?.userId;
+    if (!staffUserId) {
+      sendError(res, 401, "Sign in again");
+      return;
+    }
+    const result = await runBaselineEvaluation(staffUserId);
+    adminLog.info(`Admin evaluation run completed (${result.runId})`);
+    sendSuccess(res, 200, "Baseline evaluation completed", result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getAdminScorecard(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    if (!requireStaffActor(req)) {
+      sendError(res, 403, "This area is restricted to HerCompass staff.");
+      return;
+    }
+    const summary = await loadScorecardSummary();
+    sendSuccess(res, 200, "Scorecard retrieved", { summary });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function postAdminGrandfathered(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    if (!requireStaffActor(req)) {
+      sendError(res, 403, "This area is restricted to HerCompass staff.");
+      return;
+    }
+    const parsed = adminGrandfatheredSchema.safeParse(req.body);
+    const staffUserId = req.user?.userId;
+    if (!parsed.success || !staffUserId) {
+      sendError(res, 400, "Enter a member and a price label");
+      return;
+    }
+    try {
+      const row = await upsertGrandfathered(
+        parsed.data.userId,
+        parsed.data.label,
+        parsed.data.note,
+        staffUserId,
+      );
+      adminLog.info(`Grandfathered price marked for ${parsed.data.userId}`);
+      sendSuccess(res, 200, "Grandfathered price saved", row);
+    } catch {
+      sendError(res, 404, "That member account was not found.");
+    }
   } catch (error) {
     next(error);
   }

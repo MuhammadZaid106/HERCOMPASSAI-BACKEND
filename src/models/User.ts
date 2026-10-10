@@ -22,6 +22,7 @@ export class User extends Model<
   declare stripeCustomerId: CreationOptional<string | null>;
   declare stripeSubscriptionId: CreationOptional<string | null>;
   declare subscriptionStatus: CreationOptional<string | null>;
+  declare trialEndsAt: CreationOptional<Date | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -78,6 +79,10 @@ User.init(
     },
     subscriptionStatus: {
       type: DataTypes.STRING(50),
+      allowNull: true,
+    },
+    trialEndsAt: {
+      type: DataTypes.DATE,
       allowNull: true,
     },
     createdAt: {

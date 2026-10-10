@@ -5,6 +5,7 @@ import { logger } from "../../utils/logger.js";
 import {
   listReviewQueue,
   resolveFlag,
+  retestFlag,
   reviewQueueSummary,
 } from "../../services/ai-gateway/feedbackService.js";
 import { readAiUsage } from "../../services/member/entitlements.js";
@@ -115,6 +116,33 @@ export async function updateAiFlag(
 
     adminLog.info(`Flag ${flagId} reviewed`, { status: parsed.data.status, actor });
     sendSuccess(res, 200, "Flag updated", { flag });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function retestAiFlag(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    if (!requireStaffActor(req)) {
+      sendError(res, 403, "This area is restricted to HerCompass staff.");
+      return;
+    }
+    const flagId = singleParam(req, "id");
+    if (!flagId) {
+      sendError(res, 400, "A flag id is required.");
+      return;
+    }
+    const result = await retestFlag(flagId);
+    if (!result.ok) {
+      sendError(res, 404, result.notes);
+      return;
+    }
+    adminLog.info(`Flag ${flagId} retested`, { passed: result.passed });
+    sendSuccess(res, 200, "Retest completed", result);
   } catch (error) {
     next(error);
   }

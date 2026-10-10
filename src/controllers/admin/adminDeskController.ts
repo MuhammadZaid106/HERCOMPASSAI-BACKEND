@@ -212,15 +212,25 @@ export async function getAdminEvidence(
       return;
     }
     const records = searchAdminEvidence(parsed.data.q);
-    const retiredRows = await EvidenceStatus.findAll({
-      where: { status: "retired" },
-      attributes: ["evidenceId"],
-    });
-    const retired = new Set(retiredRows.map((row) => row.evidenceId));
+    const statusRows = await EvidenceStatus.findAll();
+    const statusById = new Map(statusRows.map((row) => [row.evidenceId, row]));
+    const { listEvidenceSubmissions } = await import("../../services/admin/adminEvidenceLifecycle.js");
+    const submissions = await listEvidenceSubmissions();
+    const signed = statusRows.some((row) => row.clinicianReviewerName.trim().length > 0)
+      || submissions.some((row) => row.clinicianReviewerName.trim().length > 0);
     adminLog.info(`Admin evidence search returned ${records.length}`);
     sendSuccess(res, 200, "Evidence catalog retrieved", {
-      records: records.map((record) => ({ ...record, retired: retired.has(record.evidenceId) })),
-      clinicianReview: "pending-named-clinician",
+      records: records.map((record) => {
+        const overlay = statusById.get(record.evidenceId);
+        return {
+          ...record,
+          retired: overlay?.status === "retired",
+          lifecycleStatus: overlay?.status ?? "active",
+          clinicianReviewerName: overlay?.clinicianReviewerName ?? "",
+        };
+      }),
+      submissions,
+      clinicianReview: signed ? "signed" : "pending-named-clinician",
     });
   } catch (error) {
     next(error);
