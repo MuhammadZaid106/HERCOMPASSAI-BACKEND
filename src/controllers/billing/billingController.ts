@@ -7,6 +7,7 @@ import { User } from "../../models/User.js";
 import { logger } from "../../utils/logger.js";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware.js";
 import { getStripe } from "../../config/stripe.js";
+import { trackEvent } from "../../services/analytics/trackEvent.js";
 
 const billingLog = logger.module("BillingController");
 
@@ -53,6 +54,15 @@ export async function createCheckoutSession(
       interval: parsed.data.interval,
       successUrl: parsed.data.successUrl,
       cancelUrl: parsed.data.cancelUrl,
+    });
+
+    void trackEvent("checkout_started", {
+      userId,
+      properties: {
+        plan: parsed.data.plan,
+        interval: parsed.data.interval,
+        sessionId: result.sessionId,
+      },
     });
 
     res.status(200).json({

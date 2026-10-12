@@ -13,6 +13,7 @@ import {
 import {
   createSupportRequest,
   deleteMemberAccount,
+  exportMemberAccount,
   getExploreProgress,
   getNotificationPreferences,
   updateAccountConsent,
@@ -47,6 +48,7 @@ router.post("/notifications/read-all", markAllMemberNotificationsRead);
 router.patch("/notifications/:id/read", markMemberNotificationRead);
 router.get("/subscription", getMemberSubscription);
 router.get("/account", getMemberAccount);
+router.get("/account/export", exportMemberAccount);
 router.put("/account/profile", updateMemberProfile);
 router.put("/account/preferences", updateAccountPreferences);
 router.put("/account/consent", updateAccountConsent);

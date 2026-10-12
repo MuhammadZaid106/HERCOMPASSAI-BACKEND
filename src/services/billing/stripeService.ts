@@ -208,6 +208,15 @@ export class StripeService {
           plan: targetPlan,
           summary: `Checkout completed for ${targetPlan}`,
         });
+        const { trackEvent } = await import("../analytics/trackEvent.js");
+        void trackEvent("checkout_completed", {
+          userId: resolvedUserId,
+          properties: {
+            plan: targetPlan,
+            sessionId: session.id,
+            stripeEventId: event.id,
+          },
+        });
         return { handled: true, message: "Checkout session completed" };
       }
 

@@ -58,6 +58,21 @@ export const trackingQuerySchema = z.object({
   range: z.enum(["7d", "30d", "90d"]).default("7d"),
 });
 
+export const TRACKING_ENTRY_TYPES = [
+  "symptoms",
+  "mood",
+  "sleep",
+  "energy",
+  "lifestyle",
+] as const;
+
+export type TrackingEntryType = (typeof TRACKING_ENTRY_TYPES)[number];
+
+export const trackingEntryParamsSchema = z.object({
+  type: z.enum(TRACKING_ENTRY_TYPES),
+  id: z.string().uuid("Entry id must be a valid id"),
+});
+
 export type SymptomEntryPayload = z.infer<typeof symptomEntrySchema>;
 export type MoodEntryPayload = z.infer<typeof moodEntrySchema>;
 export type SleepEntryPayload = z.infer<typeof sleepEntrySchema>;

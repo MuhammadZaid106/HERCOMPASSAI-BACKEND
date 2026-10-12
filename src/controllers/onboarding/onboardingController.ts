@@ -11,6 +11,8 @@ import { onboardingPayloadSchema } from "./onboardingSchemas.js";
 import { calculateDeterministicScores } from "../../services/onboarding/calculateScores.js";
 import { generatePersonalSnapshot } from "../../services/onboarding/personalSnapshotService.js";
 import { notifyMember } from "../../services/notifications/notificationService.js";
+import { trackEvent } from "../../services/analytics/trackEvent.js";
+import { stampFunnelFirstWrite } from "../../services/analytics/funnelStamps.js";
 import { sendSuccess, sendError } from "../../utils/apiResponse.js";
 import { logger } from "../../utils/logger.js";
 
@@ -59,6 +61,8 @@ export async function submitOnboarding(
 
     // 3. Upsert into database
     let profile = await OnboardingProfile.findOne({ where: { userId } });
+    const wasNew = !profile;
+    const wasCompleted = Boolean(profile?.isCompleted);
 
     const profileData = {
       userId,
@@ -106,6 +110,24 @@ export async function submitOnboarding(
       await profile.update(profileData);
     } else {
       profile = await OnboardingProfile.create(profileData);
+    }
+
+    // Funnel stamps are first-write only; analytics events stay one-shot for conversion.
+    void stampFunnelFirstWrite(userId, "onboarding_started");
+    if (wasNew) {
+      void trackEvent("onboarding_started", {
+        userId,
+        properties: { completedInSameSave: isCompleted },
+      });
+    }
+    if (isCompleted) {
+      void stampFunnelFirstWrite(userId, "onboarding_completed");
+      if (!wasCompleted) {
+        void trackEvent("onboarding_completed", {
+          userId,
+          properties: { version: profile.version },
+        });
+      }
     }
 
     if (isCompleted) {
@@ -252,6 +274,19 @@ export async function getPersonalSnapshot(
       sendError(res, outcome.statusCode, outcome.message, { reason: outcome.reason });
       return;
     }
+
+    if (outcome.generated) {
+      void trackEvent("snapshot_generated", {
+        userId,
+        properties: { requestId: outcome.requestId },
+      });
+      void stampFunnelFirstWrite(userId, "snapshot_generated");
+    }
+    void trackEvent("snapshot_viewed", {
+      userId,
+      properties: { requestId: outcome.requestId, generated: outcome.generated },
+    });
+    void stampFunnelFirstWrite(userId, "snapshot_displayed");
 
     // The service owns assembly, storage and provenance; this layer only presents.
     //

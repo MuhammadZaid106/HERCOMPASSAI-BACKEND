@@ -68,6 +68,21 @@ export interface AdminMetrics {
   invitesByState: Array<{ status: InviteState; count: number }>;
   /** Null when no flag rows exist, so the screen does not read as "no problems". */
   flagSeverity: { low: number; medium: number; high: number } | null;
+  /** Required product events from `analytics_events` — real counts only. */
+  productEvents: {
+    last14Days: Array<{ eventName: string; count: number }>;
+    last30Days: Array<{ eventName: string; count: number }>;
+  };
+  /**
+   * Stamp-to-stamp medians from `user_funnel_stamps`.
+   * `median` is null when that pair has no completed samples yet.
+   */
+  funnelIntervals: Array<{
+    id: string;
+    label: string;
+    median: string | null;
+    sampleSize: number;
+  }>;
   scorecard: {
     p0: number | null;
     p1: number | null;
@@ -123,7 +138,9 @@ export async function loadAdminMetrics(now = new Date(), days = DAY_WINDOW): Pro
   const windowDays = days === 30 ? 30 : DAY_WINDOW;
   const start = utcWindowStart(windowDays, now);
   const { loadScorecardSummary } = await import("./adminEvaluation.js");
-  const [members, snapshots, openAiFlags, acceptedPartnerConnections, signupRows, planRows, inviteRows, severityRows, flagTotal, durationRows, scorecard] =
+  const { countProductEventsByName } = await import("../analytics/trackEvent.js");
+  const { loadFunnelIntervalCards } = await import("../analytics/funnelStamps.js");
+  const [members, snapshots, openAiFlags, acceptedPartnerConnections, signupRows, planRows, inviteRows, severityRows, flagTotal, durationRows, scorecard, productEvents14, productEvents30, funnelIntervals] =
     await Promise.all([
       scalar(`SELECT COUNT(*)::int AS count FROM users WHERE role = 'member'`),
       scalar(`SELECT COUNT(*)::int AS count FROM personal_snapshots`),
@@ -163,6 +180,9 @@ export async function loadAdminMetrics(now = new Date(), days = DAY_WINDOW): Pro
         { type: QueryTypes.SELECT },
       ),
       loadScorecardSummary(),
+      countProductEventsByName(14, now),
+      countProductEventsByName(30, now),
+      loadFunnelIntervalCards(formatDuration, medianSeconds),
     ]);
 
   const severity = new Map(severityRows.map((row) => [row.severity, asCount(row.count)]));
@@ -184,6 +204,11 @@ export async function loadAdminMetrics(now = new Date(), days = DAY_WINDOW): Pro
     invitesByState: countsForInvites(
       inviteRows.map((row) => ({ status: row.status, count: asCount(row.count) })),
     ),
+    productEvents: {
+      last14Days: productEvents14,
+      last30Days: productEvents30,
+    },
+    funnelIntervals,
     scorecard: {
       p0: scorecard.p0,
       p1: scorecard.p1,

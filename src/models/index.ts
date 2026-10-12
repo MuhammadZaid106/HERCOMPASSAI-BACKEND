@@ -18,6 +18,9 @@ import { NotificationPreference } from "./NotificationPreference.js";
 import { ExploreProgress } from "./ExploreProgress.js";
 import { SupportRequest } from "./SupportRequest.js";
 import { PasswordResetToken } from "./PasswordResetToken.js";
+import { EmailActionToken } from "./EmailActionToken.js";
+import { AnalyticsEvent } from "./AnalyticsEvent.js";
+import { UserFunnelStamp } from "./UserFunnelStamp.js";
 import { PartnerInvite } from "./PartnerInvite.js";
 import { SavedContent } from "./SavedContent.js";
 import { EntitlementUsage } from "./EntitlementUsage.js";
@@ -155,6 +158,8 @@ User.hasMany(SupportRequest, { foreignKey: "userId", as: "supportRequests", onDe
 SupportRequest.belongsTo(User, { foreignKey: "userId", as: "user" });
 User.hasMany(PasswordResetToken, { foreignKey: "userId", as: "passwordResetTokens", onDelete: "CASCADE" });
 PasswordResetToken.belongsTo(User, { foreignKey: "userId", as: "user" });
+User.hasMany(EmailActionToken, { foreignKey: "userId", as: "emailActionTokens", onDelete: "CASCADE" });
+EmailActionToken.belongsTo(User, { foreignKey: "userId", as: "user" });
 User.hasMany(PartnerInvite, { foreignKey: "memberUserId", as: "sentPartnerInvites", onDelete: "CASCADE" });
 PartnerInvite.belongsTo(User, { foreignKey: "memberUserId", as: "member" });
 User.hasMany(SavedContent, { foreignKey: "userId", as: "savedContent", onDelete: "CASCADE" });
@@ -181,6 +186,20 @@ SupportRequest.hasOne(ProductFeedback, {
 ProductFeedback.belongsTo(SupportRequest, { foreignKey: "supportRequestId", as: "supportRequest" });
 ProductFeedback.belongsTo(User, { foreignKey: "ownerUserId", as: "owner" });
 
+User.hasMany(AnalyticsEvent, {
+  foreignKey: "userId",
+  as: "analyticsEvents",
+  onDelete: "SET NULL",
+});
+AnalyticsEvent.belongsTo(User, { foreignKey: "userId", as: "user" });
+
+User.hasOne(UserFunnelStamp, {
+  foreignKey: "userId",
+  as: "funnelStamp",
+  onDelete: "CASCADE",
+});
+UserFunnelStamp.belongsTo(User, { foreignKey: "userId", as: "user" });
+
 export {
   sequelize,
   connectDB,
@@ -203,6 +222,9 @@ export {
   ExploreProgress,
   SupportRequest,
   PasswordResetToken,
+  EmailActionToken,
+  AnalyticsEvent,
+  UserFunnelStamp,
   PartnerInvite,
   SavedContent,
   EntitlementUsage,

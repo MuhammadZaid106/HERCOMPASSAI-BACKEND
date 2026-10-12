@@ -104,9 +104,23 @@ export const resetPasswordSchema = z.object({
     .regex(/[0-9]/, "Password must include at least one number"),
 });
 
+export const verifyEmailSchema = z.object({
+  token: z.string().min(20, "This confirmation link is not valid"),
+});
+
+export const requestEmailChangeSchema = z.object({
+  newEmail: z.email("Enter a valid email address").toLowerCase().trim(),
+  currentPassword: z.string().min(1, "Enter your current password"),
+});
+
+export const confirmEmailChangeSchema = z.object({
+  token: z.string().min(20, "This confirmation link is not valid"),
+});
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
 export type GoogleAuthInput = z.infer<typeof googleAuthSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type SessionInput = z.infer<typeof sessionSchema>;
+export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;

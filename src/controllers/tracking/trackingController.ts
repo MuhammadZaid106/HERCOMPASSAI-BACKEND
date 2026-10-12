@@ -16,8 +16,27 @@ import {
   moodEntrySchema,
   sleepEntrySchema,
   symptomEntrySchema,
+  trackingEntryParamsSchema,
   trackingQuerySchema,
+  type TrackingEntryType,
 } from "./trackingSchemas.js";
+import type { Model, ModelStatic } from "sequelize";
+
+const ENTRY_MODELS: Record<TrackingEntryType, ModelStatic<Model>> = {
+  symptoms: SymptomEntry,
+  mood: MoodEntry,
+  sleep: SleepEntry,
+  energy: EnergyEntry,
+  lifestyle: LifestyleEntry,
+};
+
+const TYPE_LABEL: Record<TrackingEntryType, string> = {
+  symptoms: "Symptoms",
+  mood: "Mood",
+  sleep: "Sleep",
+  energy: "Energy",
+  lifestyle: "Lifestyle",
+};
 
 function getMemberId(req: AuthenticatedRequest, res: Response): string | null {
   if (!req.user?.userId) {
@@ -163,4 +182,81 @@ export async function getTrackingSummary(req: AuthenticatedRequest, res: Respons
       counts: { symptoms: symptoms.length, moods: moods.length, sleep: sleep.length, energy: energy.length, lifestyle: lifestyle.length },
     });
   } catch (error) { next(error); }
+}
+
+/**
+ * GET /api/tracking/:type/:id
+ * Returns one entry the signed-in member owns.
+ */
+export async function getTrackingEntry(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = getMemberId(req, res);
+    if (!userId) return;
+
+    const parsed = trackingEntryParamsSchema.safeParse(req.params);
+    if (!parsed.success) {
+      sendError(res, 400, "Choose a valid entry type and id");
+      return;
+    }
+
+    const Model = ENTRY_MODELS[parsed.data.type];
+    const entry = await Model.findOne({
+      where: { id: parsed.data.id, userId },
+    });
+    if (!entry) {
+      sendError(res, 404, "That entry was not found");
+      return;
+    }
+
+    sendSuccess(res, 200, `${TYPE_LABEL[parsed.data.type]} entry retrieved`, {
+      type: parsed.data.type,
+      entry,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * DELETE /api/tracking/:type/:id
+ * Removes one entry the signed-in member owns. Other members' rows are never matched.
+ */
+export async function deleteTrackingEntry(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = getMemberId(req, res);
+    if (!userId) return;
+
+    const parsed = trackingEntryParamsSchema.safeParse(req.params);
+    if (!parsed.success) {
+      sendError(res, 400, "Choose a valid entry type and id");
+      return;
+    }
+
+    const Model = ENTRY_MODELS[parsed.data.type];
+    const entry = await Model.findOne({
+      where: { id: parsed.data.id, userId },
+    });
+    if (!entry) {
+      sendError(res, 404, "That entry was not found");
+      return;
+    }
+
+    const snapshot = entry.toJSON() as Record<string, unknown>;
+    await entry.destroy();
+    sendSuccess(res, 200, `${TYPE_LABEL[parsed.data.type]} entry removed`, {
+      type: parsed.data.type,
+      id: parsed.data.id,
+      entryDate: snapshot.entryDate ?? null,
+    });
+  } catch (error) {
+    next(error);
+  }
 }
