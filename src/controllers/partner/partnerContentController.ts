@@ -2,7 +2,7 @@ import type { NextFunction, Response } from "express";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware.js";
 import { PartnerLessonProgress } from "../../models/PartnerLessonProgress.js";
 import { getEvidenceById } from "../../ai/evidence/approvedEvidence.js";
-import { ACADEMY_LESSONS, lessonBySlug } from "../../services/partner/academyCatalog.js";
+import { listAcademyLessons, lessonBySlug } from "../../services/partner/academyCatalog.js";
 import {
   assessPartnerRequest,
   loadPartnerGate,
@@ -143,9 +143,10 @@ export async function getPartnerAcademy(
       topicsAllowed: opened.gate.topicsAllowed,
       result: "allowed",
     });
+    const lessons = await listAcademyLessons();
     sendSuccess(res, 200, "Men's Academy", {
       included: true,
-      lessons: ACADEMY_LESSONS.map((lesson) => ({
+      lessons: lessons.map((lesson) => ({
         slug: lesson.slug,
         category: lesson.category,
         title: lesson.title,
@@ -172,7 +173,7 @@ export async function getPartnerLesson(
       sendSuccess(res, 200, planNote(opened.gate), { included: false, plusMessage: planNote(opened.gate) });
       return;
     }
-    const lesson = lessonBySlug(slug);
+    const lesson = await lessonBySlug(slug);
     if (!lesson) {
       sendError(res, 404, "That lesson is not in the academy.");
       return;
@@ -225,7 +226,7 @@ export async function markPartnerLessonRead(
       sendError(res, 403, planNote(opened.gate));
       return;
     }
-    const lesson = lessonBySlug(slug);
+    const lesson = await lessonBySlug(slug);
     if (!lesson) {
       sendError(res, 404, "That lesson is not in the academy.");
       return;

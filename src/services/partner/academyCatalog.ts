@@ -1,3 +1,6 @@
+import { ContentPiece } from "../../models/index.js";
+import { logger } from "../../utils/logger.js";
+
 export interface AcademyLesson {
   slug: string;
   category: "basics" | "daily-life" | "relationship";
@@ -112,6 +115,61 @@ export const ACADEMY_LESSONS: AcademyLesson[] = [
   },
 ];
 
-export function lessonBySlug(slug: string): AcademyLesson | undefined {
+const academyLog = logger.module("ACADEMY");
+
+function parseLesson(row: ContentPiece): AcademyLesson | null {
+  const body = row.body as Record<string, unknown>;
+  const category = body.category;
+  const paragraphs = body.paragraphs;
+  if (
+    (category !== "basics" && category !== "daily-life" && category !== "relationship") ||
+    !Array.isArray(paragraphs) ||
+    typeof body.version !== "string" ||
+    typeof body.evidenceId !== "string" ||
+    typeof body.summary !== "string"
+  ) {
+    return null;
+  }
+  return {
+    slug: row.slug,
+    title: row.title,
+    category,
+    version: body.version,
+    evidenceId: body.evidenceId,
+    summary: body.summary,
+    paragraphs: paragraphs.filter((line): line is string => typeof line === "string"),
+  };
+}
+
+export async function listAcademyLessons(): Promise<AcademyLesson[]> {
+  try {
+    const rows = await ContentPiece.findAll({
+      where: { kind: "mens_academy", status: "published" },
+      order: [["slug", "ASC"]],
+    });
+    if (rows.length === 0) return ACADEMY_LESSONS;
+    const parsed = rows.flatMap((row) => {
+      const lesson = parseLesson(row);
+      return lesson ? [lesson] : [];
+    });
+    return parsed.length > 0 ? parsed : ACADEMY_LESSONS;
+  } catch (error) {
+    academyLog.warn("Academy library fell back to the code list", error);
+    return ACADEMY_LESSONS;
+  }
+}
+
+export async function lessonBySlug(slug: string): Promise<AcademyLesson | undefined> {
+  try {
+    const row = await ContentPiece.findOne({
+      where: { kind: "mens_academy", status: "published", slug },
+    });
+    if (row) {
+      const lesson = parseLesson(row);
+      if (lesson) return lesson;
+    }
+  } catch (error) {
+    academyLog.warn(`Academy lesson ${slug} fell back to the code list`, error);
+  }
   return ACADEMY_LESSONS.find((lesson) => lesson.slug === slug);
 }

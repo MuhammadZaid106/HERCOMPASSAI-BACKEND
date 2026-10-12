@@ -3,6 +3,7 @@ import { getStripe } from "../../config/stripe.js";
 import { env } from "../../config/env.js";
 import { User } from "../../models/User.js";
 import { logger } from "../../utils/logger.js";
+import { recordBillingEvent } from "./recordBillingEvent.js";
 
 const stripeLog = logger.module("StripeService");
 
@@ -187,6 +188,7 @@ export class StripeService {
         const subscriptionId =
           typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
 
+        let resolvedUserId: string | null = userId ?? null;
         if (userId) {
           const user = await User.findByPk(userId);
           if (user) {
@@ -195,9 +197,17 @@ export class StripeService {
             if (subscriptionId) user.stripeSubscriptionId = subscriptionId;
             user.subscriptionStatus = "active";
             await user.save();
+            resolvedUserId = user.id;
             stripeLog.info(`✅ User ${userId} upgraded to ${targetPlan} via Checkout Session`);
           }
         }
+        await recordBillingEvent({
+          event,
+          userId: resolvedUserId,
+          status: "paid",
+          plan: targetPlan,
+          summary: `Checkout completed for ${targetPlan}`,
+        });
         return { handled: true, message: "Checkout session completed" };
       }
 
@@ -220,11 +230,27 @@ export class StripeService {
             if (metadataPlan) {
               user.plan = metadataPlan;
             }
+            if (status === "trialing" && subscription.trial_end) {
+              user.trialEndsAt = new Date(subscription.trial_end * 1000);
+            }
           } else if (status === "canceled" || status === "unpaid") {
             user.plan = "free";
+            user.trialEndsAt = null;
           }
           await user.save();
           stripeLog.info(`✅ Subscription ${subscription.id} updated. User ${user.id} status=${status} plan=${user.plan}`);
+          let billingStatus: "active" | "trialing" | "past_due" | "canceled" | "other" = "other";
+          if (status === "active") billingStatus = "active";
+          else if (status === "trialing") billingStatus = "trialing";
+          else if (status === "past_due") billingStatus = "past_due";
+          else if (status === "canceled") billingStatus = "canceled";
+          await recordBillingEvent({
+            event,
+            userId: user.id,
+            status: billingStatus,
+            plan: user.plan,
+            summary: `Subscription updated to ${status}`,
+          });
         }
         return { handled: true, message: "Subscription updated" };
       }
@@ -237,8 +263,16 @@ export class StripeService {
           user.plan = "free";
           user.subscriptionStatus = "canceled";
           user.stripeSubscriptionId = null;
+          user.trialEndsAt = null;
           await user.save();
           stripeLog.info(`✅ Subscription ${subscription.id} deleted. User ${user.id} downgraded to free.`);
+          await recordBillingEvent({
+            event,
+            userId: user.id,
+            status: "canceled",
+            plan: "free",
+            summary: "Subscription deleted; member moved to Free",
+          });
         }
         return { handled: true, message: "Subscription deleted" };
       }
@@ -246,27 +280,49 @@ export class StripeService {
       case "invoice.payment_succeeded": {
         const invoice = event.data.object as Stripe.Invoice;
         const customerId = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
+        let userId: string | null = null;
         if (customerId) {
           const user = await User.findOne({ where: { stripeCustomerId: customerId } });
-          if (user && user.subscriptionStatus !== "active") {
-            user.subscriptionStatus = "active";
-            await user.save();
+          if (user) {
+            userId = user.id;
+            if (user.subscriptionStatus !== "active") {
+              user.subscriptionStatus = "active";
+              await user.save();
+            }
           }
         }
+        await recordBillingEvent({
+          event,
+          userId,
+          status: "paid",
+          amountCents: typeof invoice.amount_paid === "number" ? invoice.amount_paid : null,
+          currency: invoice.currency ?? null,
+          summary: "Invoice payment succeeded",
+        });
         return { handled: true, message: "Invoice payment succeeded" };
       }
 
       case "invoice.payment_failed": {
         const invoice = event.data.object as Stripe.Invoice;
         const customerId = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
+        let userId: string | null = null;
         if (customerId) {
           const user = await User.findOne({ where: { stripeCustomerId: customerId } });
           if (user) {
+            userId = user.id;
             user.subscriptionStatus = "past_due";
             await user.save();
             stripeLog.warn(`⚠️ Invoice payment failed for user ${user.id} (customer: ${customerId})`);
           }
         }
+        await recordBillingEvent({
+          event,
+          userId,
+          status: "failed",
+          amountCents: typeof invoice.amount_due === "number" ? invoice.amount_due : null,
+          currency: invoice.currency ?? null,
+          summary: "Invoice payment failed",
+        });
         return { handled: true, message: "Invoice payment failed" };
       }
 

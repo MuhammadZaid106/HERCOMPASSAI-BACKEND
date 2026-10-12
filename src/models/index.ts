@@ -31,6 +31,14 @@ import { BetaMember } from "./BetaMember.js";
 import { ContentPiece } from "./ContentPiece.js";
 import { ProductFeedback } from "./ProductFeedback.js";
 import { EvidenceStatus } from "./EvidenceStatus.js";
+import { BillingEvent } from "./BillingEvent.js";
+import { GrandfatheredPlan } from "./GrandfatheredPlan.js";
+import { AiFlagCase } from "./AiFlagCase.js";
+import { AiRequestExcerpt } from "./AiRequestExcerpt.js";
+import { EvaluationCase } from "./EvaluationCase.js";
+import { EvaluationRun } from "./EvaluationRun.js";
+import { EvaluationResult } from "./EvaluationResult.js";
+import { EvidenceSubmission } from "./EvidenceSubmission.js";
 
 // Setup Model Associations
 User.hasMany(RefreshToken, {
@@ -122,6 +130,19 @@ AiFlag.belongsTo(User, { foreignKey: "userId", as: "user" });
 AiAuditLog.hasMany(AiFlag, { foreignKey: "requestId", as: "flags", onDelete: "CASCADE" });
 AiFlag.belongsTo(AiAuditLog, { foreignKey: "requestId", as: "aiEvent" });
 
+AiFlag.hasOne(AiFlagCase, { foreignKey: "flagId", as: "reviewCase", onDelete: "CASCADE" });
+AiFlagCase.belongsTo(AiFlag, { foreignKey: "flagId", as: "flag" });
+
+User.hasMany(BillingEvent, { foreignKey: "userId", as: "billingEvents", onDelete: "SET NULL" });
+BillingEvent.belongsTo(User, { foreignKey: "userId", as: "user" });
+User.hasOne(GrandfatheredPlan, { foreignKey: "userId", as: "grandfatheredPlan", onDelete: "CASCADE" });
+GrandfatheredPlan.belongsTo(User, { foreignKey: "userId", as: "user" });
+
+EvaluationRun.hasMany(EvaluationResult, { foreignKey: "runId", as: "results", onDelete: "CASCADE" });
+EvaluationResult.belongsTo(EvaluationRun, { foreignKey: "runId", as: "run" });
+EvaluationCase.hasMany(EvaluationResult, { foreignKey: "caseId", as: "results", onDelete: "CASCADE" });
+EvaluationResult.belongsTo(EvaluationCase, { foreignKey: "caseId", as: "case" });
+
 User.hasMany(SnapshotVersion, { foreignKey: "userId", as: "snapshotVersions", onDelete: "CASCADE" });
 SnapshotVersion.belongsTo(User, { foreignKey: "userId", as: "user" });
 User.hasMany(SnapshotFeedback, { foreignKey: "userId", as: "snapshotFeedback", onDelete: "CASCADE" });
@@ -195,4 +216,12 @@ export {
   ContentPiece,
   ProductFeedback,
   EvidenceStatus,
+  BillingEvent,
+  GrandfatheredPlan,
+  AiFlagCase,
+  AiRequestExcerpt,
+  EvaluationCase,
+  EvaluationRun,
+  EvaluationResult,
+  EvidenceSubmission,
 };

@@ -33,24 +33,76 @@ const meditationBody = z.object({
   steps: z.array(z.string()),
 });
 
+const slugField = z.string().trim().min(1).max(80).regex(/^[a-z0-9-]+$/);
+const titleField = z.string().trim().min(1).max(120);
+
+const proseBody = z.object({
+  summary: z.string().trim().min(1).max(500),
+  paragraphs: z.array(z.string().trim().min(1)).min(1).max(20),
+});
+
+const academyBody = z.object({
+  category: z.enum(["basics", "daily-life", "relationship"]),
+  version: z.string().trim().min(1).max(16),
+  evidenceId: z.string().trim().min(1).max(64),
+  summary: z.string().trim().min(1).max(500),
+  paragraphs: z.array(z.string().trim().min(1)).min(1).max(20),
+});
+
+const evidenceExplanationBody = z.object({
+  evidenceIds: z.array(z.string().trim().min(1)).min(1).max(12),
+  summary: z.string().trim().min(1).max(500),
+  paragraphs: z.array(z.string().trim().min(1)).min(1).max(20),
+});
+
 export const contentWriteSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("recipe"),
-    title: z.string().trim().min(1).max(120),
-    slug: z.string().trim().min(1).max(80).regex(/^[a-z0-9-]+$/),
+    title: titleField,
+    slug: slugField,
     body: recipeBody,
   }),
   z.object({
     kind: z.literal("workout"),
-    title: z.string().trim().min(1).max(120),
-    slug: z.string().trim().min(1).max(80).regex(/^[a-z0-9-]+$/),
+    title: titleField,
+    slug: slugField,
     body: workoutBody,
   }),
   z.object({
     kind: z.literal("meditation"),
-    title: z.string().trim().min(1).max(120),
-    slug: z.string().trim().min(1).max(80).regex(/^[a-z0-9-]+$/),
+    title: titleField,
+    slug: slugField,
     body: meditationBody,
+  }),
+  z.object({
+    kind: z.literal("article"),
+    title: titleField,
+    slug: slugField,
+    body: proseBody,
+  }),
+  z.object({
+    kind: z.literal("mens_academy"),
+    title: titleField,
+    slug: slugField,
+    body: academyBody,
+  }),
+  z.object({
+    kind: z.literal("partner_content"),
+    title: titleField,
+    slug: slugField,
+    body: proseBody,
+  }),
+  z.object({
+    kind: z.literal("evidence_explanation"),
+    title: titleField,
+    slug: slugField,
+    body: evidenceExplanationBody,
+  }),
+  z.object({
+    kind: z.literal("educational"),
+    title: titleField,
+    slug: slugField,
+    body: proseBody,
   }),
 ]);
 

@@ -9,7 +9,6 @@ import { clinicianReviewSummary } from "../ai-gateway/evidenceService.js";
 import { isStripeConfigured } from "../../config/stripe.js";
 import { mailIsConfigured } from "../mail/sendMail.js";
 import {
-  AppSetting,
   BetaCohort,
   BetaMember,
   ContentPiece,
@@ -23,7 +22,9 @@ import type { ContentKind, ContentStatus } from "../../models/ContentPiece.js";
 import { contentWriteSchema } from "../member/publishedLibrary.js";
 import { firstName, formatDuration, medianSeconds } from "./adminPresent.js";
 
-export const FOUNDING_CAP_KEY = "founding_women_cap";
+export { FOUNDING_CAP_KEY, loadAdminSettings, saveAdminSettings, saveFoundingCap } from "./adminProductConfig.js";
+import { loadAdminSettings as loadProductSettings } from "./adminProductConfig.js";
+
 const FOUNDING_SLUG = "founding-women";
 
 export const PRODUCT_THEMES = [
@@ -40,27 +41,8 @@ export const PRODUCT_THEMES = [
 ] as const;
 
 async function foundingCap(): Promise<number> {
-  const row = await AppSetting.findByPk(FOUNDING_CAP_KEY);
-  const parsed = Number(row?.value);
-  if (!Number.isInteger(parsed) || parsed < 1) return 100;
-  return parsed;
-}
-
-export async function loadAdminSettings(): Promise<{
-  foundingCap: number;
-  billingConnected: boolean;
-  mailConfigured: boolean;
-}> {
-  return {
-    foundingCap: await foundingCap(),
-    billingConnected: isStripeConfigured(),
-    mailConfigured: mailIsConfigured(),
-  };
-}
-
-export async function saveFoundingCap(cap: number): Promise<number> {
-  await AppSetting.upsert({ key: FOUNDING_CAP_KEY, value: String(cap) });
-  return cap;
+  const settings = await loadProductSettings();
+  return settings.foundingCap;
 }
 
 export interface BetaMemberRow {
@@ -246,7 +228,16 @@ export async function loadAdminContent(kind?: ContentKind): Promise<AdminContent
 
 export async function createAdminContent(
   input: z.infer<typeof contentWriteSchema>,
-): Promise<AdminContentRow | "duplicate"> {
+): Promise<AdminContentRow | "duplicate" | "invalid_evidence"> {
+  if (input.kind === "evidence_explanation") {
+    const ids = input.body.evidenceIds;
+    const known = new Set(APPROVED_EVIDENCE.map((record) => record.evidenceId));
+    if (ids.some((id) => !known.has(id))) return "invalid_evidence";
+    const retired = await EvidenceStatus.findAll({
+      where: { evidenceId: { [Op.in]: ids }, status: "retired" },
+    });
+    if (retired.length > 0) return "invalid_evidence";
+  }
   const existing = await ContentPiece.findOne({ where: { kind: input.kind, slug: input.slug } });
   if (existing) return "duplicate";
   const piece = await ContentPiece.create({
@@ -262,7 +253,7 @@ export async function createAdminContent(
 export async function updateAdminContent(
   id: string,
   patch: unknown,
-): Promise<AdminContentRow | "missing" | "invalid"> {
+): Promise<AdminContentRow | "missing" | "invalid" | "invalid_evidence"> {
   const piece = await ContentPiece.findByPk(id);
   if (!piece) return "missing";
   const parsed = contentPatch.safeParse(patch);
@@ -275,6 +266,15 @@ export async function updateAdminContent(
     body: nextBody,
   });
   if (!checked.success) return "invalid";
+  if (checked.data.kind === "evidence_explanation") {
+    const ids = checked.data.body.evidenceIds;
+    const known = new Set(APPROVED_EVIDENCE.map((record) => record.evidenceId));
+    if (ids.some((evidenceId) => !known.has(evidenceId))) return "invalid_evidence";
+    const retired = await EvidenceStatus.findAll({
+      where: { evidenceId: { [Op.in]: ids }, status: "retired" },
+    });
+    if (retired.length > 0) return "invalid_evidence";
+  }
   piece.title = checked.data.title;
   piece.body = checked.data.body;
   if (parsed.data.status) piece.status = parsed.data.status;
@@ -406,6 +406,12 @@ export async function setEvidenceRetired(
   });
   return true;
 }
+
+export {
+  setEvidenceLifecycle,
+  submitEvidenceSource,
+  listEvidenceSubmissions,
+} from "./adminEvidenceLifecycle.js";
 
 export interface SystemCheck {
   id: string;

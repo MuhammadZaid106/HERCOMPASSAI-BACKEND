@@ -62,7 +62,18 @@ export const adminBetaStageSchema = z.object({
 });
 
 export const adminContentQuerySchema = z.object({
-  kind: z.enum(["recipe", "workout", "meditation"]).optional(),
+  kind: z
+    .enum([
+      "recipe",
+      "workout",
+      "meditation",
+      "article",
+      "mens_academy",
+      "partner_content",
+      "evidence_explanation",
+      "educational",
+    ])
+    .optional(),
 });
 
 export const adminProductNoteSchema = z.object({
@@ -84,7 +95,38 @@ export const adminProductNoteSchema = z.object({
 });
 
 export const adminEvidenceStatusSchema = z.object({
-  status: z.enum(["active", "retired"]),
+  status: z.enum([
+    "submitted",
+    "reviewed",
+    "approved",
+    "active",
+    "review_due",
+    "retired",
+  ]),
+  note: z.string().trim().max(280).default(""),
+  clinicianReviewerName: z.string().trim().max(120).optional().default(""),
+  reviewedBy: z.string().trim().max(120).optional(),
+});
+
+export const adminEvidenceSubmitSchema = z.object({
+  evidenceId: z
+    .string()
+    .trim()
+    .min(3)
+    .max(64)
+    .regex(/^ev-[a-z0-9-]+$/i),
+  sourceName: z.string().trim().min(1).max(160),
+  organization: z.string().trim().min(1).max(160),
+  topic: z.string().trim().min(1).max(160),
+  publicationDate: z.string().trim().max(32).default(""),
+  urlOrIdentifier: z.string().trim().max(280).default(""),
+  evidenceCategory: z.string().trim().min(1).max(64).default("medical"),
+  summary: z.string().trim().max(500).default(""),
+});
+
+export const adminGrandfatheredSchema = z.object({
+  userId: z.string().uuid(),
+  label: z.string().trim().min(1).max(80),
   note: z.string().trim().max(280).default(""),
 });
 
@@ -94,6 +136,12 @@ export const adminSystemQuerySchema = z.object({
 
 export const adminSettingsSchema = z.object({
   foundingCap: z.coerce.number().int().min(1).max(10000),
+  trialDurationDays: z.coerce.number().int().min(0).max(365).default(14),
+  trialEligibility: z.enum(["none", "invite_only", "all_free"]).default("none"),
+  plusPriceLabelMonthly: z.string().trim().min(1).max(80).default("Set at checkout"),
+  plusPriceLabelAnnual: z.string().trim().min(1).max(80).default("Set at checkout"),
+  premiumPriceLabelMonthly: z.string().trim().min(1).max(80).default("Set at checkout"),
+  premiumPriceLabelAnnual: z.string().trim().min(1).max(80).default("Set at checkout"),
 });
 
 export const adminUserIdSchema = z.string().uuid();

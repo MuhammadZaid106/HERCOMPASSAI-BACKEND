@@ -7,7 +7,15 @@ import {
 } from "sequelize";
 import { sequelize } from "../config/db.js";
 
-export type ContentKind = "recipe" | "workout" | "meditation";
+export type ContentKind =
+  | "recipe"
+  | "workout"
+  | "meditation"
+  | "article"
+  | "mens_academy"
+  | "partner_content"
+  | "evidence_explanation"
+  | "educational";
 export type ContentStatus = "draft" | "in_review" | "published" | "archived";
 
 export class ContentPiece extends Model<
@@ -27,7 +35,7 @@ export class ContentPiece extends Model<
 ContentPiece.init(
   {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    kind: { type: DataTypes.STRING(16), allowNull: false },
+    kind: { type: DataTypes.STRING(32), allowNull: false },
     slug: { type: DataTypes.STRING(80), allowNull: false },
     title: { type: DataTypes.STRING(120), allowNull: false },
     body: { type: DataTypes.JSONB, allowNull: false },
