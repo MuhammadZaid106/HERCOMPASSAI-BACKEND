@@ -13,6 +13,7 @@ import { logger } from "../../utils/logger.js";
 import { filterByPreferences } from "../../services/notifications/notificationPolicy.js";
 import { loadPreferences, notifyMember } from "../../services/notifications/notificationService.js";
 import { connectedPartnerFor, issuePartnerInviteLink, revokeConnectedPartner, syncPartnerInvite } from "../../services/partner/partnerInviteService.js";
+import { buildMemberDataExport } from "../../services/member/memberDataExport.js";
 
 const libraryLog = logger.module("MEMBER-LIBRARY");
 
@@ -85,11 +86,9 @@ const deleteSchema = z.object({
 /**
  * Editable profile fields.
  *
- * Email is deliberately absent. Changing the address on an account is an
- * ownership transfer, and doing it without sending a confirmation to the new
- * address would let anyone who can reach the settings page take the account over
- * — they would receive the reset link for a password they chose. Email stays
- * read-only here until a verified-email change flow exists.
+ * Email is deliberately absent here. Address changes use
+ * `POST /api/auth/request-email-change` + confirm link so the new inbox must
+ * prove ownership (a stolen session + password alone is not enough to finish).
  */
 const profileSchema = z.object({
   name: z
@@ -395,6 +394,38 @@ export async function revokePartnerConnection(
     await revokeConnectedPartner(userId);
     sendSuccess(res, 200, "Partner access revoked", { partner: null });
   } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /api/member/account/export
+ *
+ * Portable JSON of this member's own account data. Never includes another
+ * person's health logs or partner digest content.
+ */
+export async function exportMemberAccount(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = memberId(req, res);
+    if (!userId) return;
+
+    const payload = await buildMemberDataExport(userId);
+    const stamp = new Date().toISOString().slice(0, 10);
+    const filename = `hercompass-export-${stamp}.json`;
+
+    libraryLog.info(`[${new Date().toISOString()}] member data export for ${userId}`);
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.status(200).send(JSON.stringify(payload, null, 2));
+  } catch (error) {
+    if (error instanceof Error && error.message === "USER_NOT_FOUND") {
+      sendError(res, 404, "Member account not found");
+      return;
+    }
     next(error);
   }
 }

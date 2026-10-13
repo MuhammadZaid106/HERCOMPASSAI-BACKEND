@@ -11,6 +11,10 @@ import {
   revokeOtherSessionsController,
   forgotPasswordController,
   resetPasswordController,
+  verifyEmailController,
+  resendVerificationController,
+  requestEmailChangeController,
+  confirmEmailChangeController,
 } from "../../controllers/auth/authController.js";
 import { authRateLimiter, sessionRateLimiter } from "../../middleware/rateLimiter.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
@@ -55,6 +59,10 @@ router.post("/logout", sessionRateLimiter, logoutController);
 router.get("/me", requireAuth, meController);
 router.post("/forgot-password", authRateLimiter, forgotPasswordController);
 router.post("/reset-password", authRateLimiter, resetPasswordController);
+router.post("/verify-email", authRateLimiter, verifyEmailController);
+router.post("/resend-verification", requireAuth, authRateLimiter, resendVerificationController);
+router.post("/request-email-change", requireAuth, authRateLimiter, requestEmailChangeController);
+router.post("/confirm-email-change", authRateLimiter, confirmEmailChangeController);
 
 /**
  * POST /api/auth/change-password

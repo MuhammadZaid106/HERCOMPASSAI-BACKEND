@@ -29,9 +29,18 @@ import {
   sessionSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  verifyEmailSchema,
+  requestEmailChangeSchema,
+  confirmEmailChangeSchema,
 } from "./authSchemas.js";
 import { passwordResetEmail } from "../../services/mail/passwordResetEmail.js";
 import { sendMail } from "../../services/mail/sendMail.js";
+import {
+  confirmEmailChange,
+  confirmSignupVerification,
+  requestEmailChange,
+  sendSignupVerification,
+} from "../../services/auth/emailActionTokens.js";
 
 const authLog = logger.module("AUTH");
 
@@ -153,8 +162,10 @@ export async function registerController(req: Request, res: Response): Promise<v
       // A paid plan is applied only by a verified billing event.
       role: "member",
       plan: "free",
+      emailVerified: false,
     });
 
+    const { mailed } = await sendSignupVerification(newUser);
     const { accessToken, refreshToken } = await issueSession(newUser);
 
     authLog.info(`✅ New user registered via Sequelize`, {
@@ -162,6 +173,7 @@ export async function registerController(req: Request, res: Response): Promise<v
       email: newUser.email,
       role: newUser.role,
       plan: newUser.plan,
+      verifyMailSent: mailed,
     });
 
     sendSuccess(res, 201, "Account created successfully", {
@@ -171,10 +183,12 @@ export async function registerController(req: Request, res: Response): Promise<v
         email: newUser.email,
         role: newUser.role,
         plan: newUser.plan,
+        emailVerified: newUser.emailVerified,
         createdAt: newUser.createdAt,
       },
       accessToken,
       refreshToken,
+      verificationEmailSent: mailed,
     });
   } catch (err) {
     authLog.error("Registration error", err);
@@ -722,6 +736,153 @@ export async function revokeOtherSessionsController(req: Request, res: Response)
 
 const RESET_MESSAGE = "If an account exists for that email, a reset link is on its way.";
 const RESET_MS = 30 * 60 * 1000;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/auth/verify-email
+// ─────────────────────────────────────────────────────────────────────────────
+export async function verifyEmailController(req: Request, res: Response): Promise<void> {
+  const parsed = verifyEmailSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(res, 400, "This confirmation link is not valid");
+    return;
+  }
+
+  const result = await confirmSignupVerification(parsed.data.token);
+  if (!result.ok) {
+    if (result.reason === "already_verified") {
+      sendSuccess(res, 200, "This email is already confirmed. You can sign in.", {
+        verified: true,
+        alreadyVerified: true,
+      });
+      return;
+    }
+    sendError(res, 400, "This confirmation link has expired. Request a new one from your account.");
+    return;
+  }
+
+  sendSuccess(res, 200, "Your email is confirmed. Thank you.", {
+    verified: true,
+    email: result.email,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/auth/resend-verification
+// ─────────────────────────────────────────────────────────────────────────────
+export async function resendVerificationController(req: Request, res: Response): Promise<void> {
+  const authReq = req as { user?: { userId: string } };
+  if (!authReq.user?.userId) {
+    sendError(res, 401, "Not authenticated");
+    return;
+  }
+
+  const user = await User.findByPk(authReq.user.userId);
+  if (!user) {
+    sendError(res, 404, "User not found");
+    return;
+  }
+
+  if (user.emailVerified) {
+    sendSuccess(res, 200, "This email is already confirmed.", {
+      alreadyVerified: true,
+      mailed: false,
+    });
+    return;
+  }
+
+  // Google-only accounts have no password and are already verified on first login.
+  // Credentials accounts without a password hash should not get a verify mail either.
+  if (!user.passwordHash) {
+    sendError(res, 400, "This account does not need an email confirmation link.");
+    return;
+  }
+
+  const { mailed } = await sendSignupVerification(user);
+  sendSuccess(
+    res,
+    200,
+    mailed
+      ? "A new confirmation link is on its way."
+      : "We could not send mail right now. Try again later, or check that mail is configured on the server.",
+    { mailed, alreadyVerified: false },
+  );
+}
+
+export async function requestEmailChangeController(req: Request, res: Response): Promise<void> {
+  const authReq = req as { user?: { userId: string } };
+  if (!authReq.user?.userId) {
+    sendError(res, 401, "Not authenticated");
+    return;
+  }
+
+  const parsed = requestEmailChangeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(res, 400, parsed.error.issues[0]?.message ?? "Check the new email and password");
+    return;
+  }
+
+  const user = await User.findByPk(authReq.user.userId);
+  if (!user) {
+    sendError(res, 404, "User not found");
+    return;
+  }
+
+  const passwordOk = user.passwordHash
+    ? await bcrypt.compare(parsed.data.currentPassword, user.passwordHash)
+    : false;
+
+  const result = await requestEmailChange({
+    user,
+    newEmail: parsed.data.newEmail,
+    passwordOk,
+  });
+
+  if (!result.ok) {
+    const messages: Record<typeof result.reason, string> = {
+      same_email: "That is already your email address.",
+      taken: "That email is already used by another account.",
+      unverified: "Confirm your current email before changing it.",
+      no_password: "Google-only accounts change email through Google, not here.",
+      bad_password: "That password does not match this account.",
+    };
+    sendError(res, 400, messages[result.reason]);
+    return;
+  }
+
+  sendSuccess(
+    res,
+    200,
+    result.mailed
+      ? `We sent a confirmation link to ${result.pendingEmail}.`
+      : `A confirmation step was prepared for ${result.pendingEmail}. If mail is not configured, check the server log for the link.`,
+    { pendingEmail: result.pendingEmail, mailed: result.mailed },
+  );
+}
+
+export async function confirmEmailChangeController(req: Request, res: Response): Promise<void> {
+  const parsed = confirmEmailChangeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(res, 400, "This confirmation link is not valid");
+    return;
+  }
+
+  const result = await confirmEmailChange(parsed.data.token);
+  if (!result.ok) {
+    sendError(
+      res,
+      400,
+      result.reason === "taken"
+        ? "That email was taken before you confirmed. Start the change again."
+        : "This confirmation link has expired. Start the change again from your account.",
+    );
+    return;
+  }
+
+  sendSuccess(res, 200, "Your email address is updated.", {
+    email: result.email,
+    verified: true,
+  });
+}
 
 export async function forgotPasswordController(req: Request, res: Response): Promise<void> {
   const parsed = forgotPasswordSchema.safeParse(req.body);
