@@ -42,6 +42,7 @@ import { EvaluationCase } from "./EvaluationCase.js";
 import { EvaluationRun } from "./EvaluationRun.js";
 import { EvaluationResult } from "./EvaluationResult.js";
 import { EvidenceSubmission } from "./EvidenceSubmission.js";
+import { EvidenceRecordModel } from "./EvidenceRecord.js";
 
 // Setup Model Associations
 User.hasMany(RefreshToken, {
@@ -246,4 +247,5 @@ export {
   EvaluationRun,
   EvaluationResult,
   EvidenceSubmission,
+  EvidenceRecordModel,
 };

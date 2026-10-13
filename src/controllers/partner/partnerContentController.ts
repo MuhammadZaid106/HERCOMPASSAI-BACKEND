@@ -3,6 +3,7 @@ import type { AuthenticatedRequest } from "../../middleware/authMiddleware.js";
 import { PartnerLessonProgress } from "../../models/PartnerLessonProgress.js";
 import { getEvidenceById } from "../../ai/evidence/approvedEvidence.js";
 import { listAcademyLessons, lessonBySlug } from "../../services/partner/academyCatalog.js";
+import { listChallenges } from "../../services/partner/activityCatalog.js";
 import {
   assessPartnerRequest,
   loadPartnerGate,
@@ -90,7 +91,7 @@ export async function getPartnerActivities(
       authorizedScope: opened.gate.topicsAllowed,
       evidenceIds: [],
     });
-    const activities = activityGuide(context) ?? [];
+    const activities = (await activityGuide(context)) ?? [];
     await writePartnerAudit({
       partnerUserId: opened.partnerUserId,
       memberUserId: opened.gate.memberUserId,
@@ -387,6 +388,24 @@ export async function getPartnerDigest(
       },
       sources: evidenceSources(digest.sections.evidenceIds),
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** GET /api/partner/challenges — couple co-regulation challenges (DB-first, code fallback) */
+export async function getPartnerChallenges(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    if (!req.user?.userId) {
+      sendError(res, 401, "Authentication required");
+      return;
+    }
+    const challenges = await listChallenges();
+    sendSuccess(res, 200, "Couple challenges", { challenges });
   } catch (error) {
     next(error);
   }

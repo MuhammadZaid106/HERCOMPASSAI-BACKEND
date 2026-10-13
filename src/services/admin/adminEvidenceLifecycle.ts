@@ -52,6 +52,34 @@ export async function setEvidenceLifecycle(input: {
       submission.reviewedAt = new Date();
     }
     await submission.save();
+
+    if (["approved", "active"].includes(input.status)) {
+      const { EvidenceRecordModel } = await import("../../models/EvidenceRecord.js");
+      await EvidenceRecordModel.upsert({
+        evidenceId: submission.evidenceId,
+        citationId: submission.evidenceId.toUpperCase(),
+        sourceName: submission.sourceName,
+        sourceCategory: (submission.evidenceCategory as any) || "medical",
+        title: submission.topic,
+        publisher: submission.organization,
+        publicationDate: submission.publicationDate || new Date().toISOString().slice(0, 10),
+        urlOrIdentifier: submission.urlOrIdentifier,
+        evidenceType: "literature_review",
+        authorityLevel: 4,
+        consensusLevel: 4,
+        recencyScore: 0.9,
+        status: "approved",
+        reviewedAt: new Date().toISOString().slice(0, 10),
+        reviewedBy: input.reviewedBy || "staff",
+        clinicianReview: input.clinicianReviewerName ? "signed" : "pending",
+        version: submission.version || "1.0",
+        summary: submission.summary || submission.topic,
+        keywords: [submission.topic.toLowerCase(), "menopause", "health"],
+        topicAreas: ["symptom_pattern", "energy_pattern"],
+      });
+      const { refreshEvidenceCache } = await import("../ai-gateway/evidenceService.js");
+      void refreshEvidenceCache();
+    }
   }
   return true;
 }
