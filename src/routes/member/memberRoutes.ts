@@ -33,6 +33,8 @@ import {
   listWorkouts,
   saveRecipe,
   saveWorkout,
+  listExploreItems,
+  getExploreItem,
 } from "../../controllers/member/contentLibraryController.js";
 import { getMeditation, listMeditations, saveMeditation } from "../../controllers/member/meditationController.js";
 import { createCommunityNote, listCommunity } from "../../controllers/member/communityController.js";
@@ -73,5 +75,7 @@ router.get("/meditation/:slug", getMeditation);
 router.put("/meditation/:slug", saveMeditation);
 router.get("/community", listCommunity);
 router.post("/community/notes", createCommunityNote);
+router.get("/explore", listExploreItems);
+router.get("/explore/:slug", getExploreItem);
 
 export default router;

@@ -7,6 +7,7 @@ import {
 } from "./meditationCatalog.js";
 import { RECIPE_CATALOG, type RecipeRecord } from "./recipeCatalog.js";
 import { WORKOUT_CATALOG, type WorkoutRecord } from "./workoutCatalog.js";
+import { EXPLORE_CATALOG, type ExploreRecord } from "./exploreCatalog.js";
 
 const libraryLog = logger.module("CONTENT");
 
@@ -53,6 +54,22 @@ const evidenceExplanationBody = z.object({
   evidenceIds: z.array(z.string().trim().min(1)).min(1).max(12),
   summary: z.string().trim().min(1).max(500),
   paragraphs: z.array(z.string().trim().min(1)).min(1).max(20),
+});
+
+const exploreEvidenceItem = z.object({
+  source: z.string().trim().min(1).max(120),
+  note: z.string().trim().min(1).max(500),
+});
+
+const exploreBody = z.object({
+  category: z.enum(["sleep", "mood", "energy", "nutrition", "movement", "stress", "relationships", "menopause", "partner-support", "mens-academy", "evidence"]),
+  minutes: z.number().int().min(1).max(60),
+  why: z.string().trim().min(1).max(1000),
+  tryThis: z.string().trim().min(1).max(500),
+  tryHref: z.string().trim().min(1).max(200),
+  tryLabel: z.string().trim().min(1).max(80),
+  evidence: z.array(exploreEvidenceItem).min(1).max(10),
+  starter: z.boolean(),
 });
 
 export const contentWriteSchema = z.discriminatedUnion("kind", [
@@ -104,6 +121,12 @@ export const contentWriteSchema = z.discriminatedUnion("kind", [
     slug: slugField,
     body: proseBody,
   }),
+  z.object({
+    kind: z.literal("explore"),
+    title: titleField,
+    slug: slugField,
+    body: exploreBody,
+  }),
 ]);
 
 async function tableIsInUse(): Promise<boolean> {
@@ -153,5 +176,20 @@ export async function meditationLibrary(): Promise<MeditationSession[]> {
   } catch (error) {
     libraryLog.warn("Meditation library fell back to the code list", error);
     return MEDITATION_CATALOG;
+  }
+}
+
+export async function exploreLibrary(): Promise<ExploreRecord[]> {
+  try {
+    const rows = await ContentPiece.findAll({ where: { kind: "explore", status: "published" } });
+    if (rows.length === 0) return EXPLORE_CATALOG;
+    return rows.flatMap((row) => {
+      const parsed = exploreBody.safeParse(row.body);
+      if (!parsed.success) return [];
+      return [{ slug: row.slug, title: row.title, ...parsed.data }];
+    });
+  } catch (error) {
+    libraryLog.warn("Explore library fell back to the code list", error);
+    return EXPLORE_CATALOG;
   }
 }

@@ -15,7 +15,8 @@ export type ContentKind =
   | "mens_academy"
   | "partner_content"
   | "evidence_explanation"
-  | "educational";
+  | "educational"
+  | "explore";
 export type ContentStatus = "draft" | "in_review" | "published" | "archived";
 
 export class ContentPiece extends Model<
