@@ -1,10 +1,11 @@
 import type { Response, NextFunction } from "express";
 import { z } from "zod";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware.js";
-import { OnboardingProfile, SavedContent } from "../../models/index.js";
+import { OnboardingProfile, SavedContent, User } from "../../models/index.js";
 import { sendError, sendSuccess } from "../../utils/apiResponse.js";
-import { type RecipeRecord } from "../../services/member/recipeCatalog.js";
-import { type WorkoutRecord } from "../../services/member/workoutCatalog.js";
+import { type RecipeRecord, recipeIncluded } from "../../services/member/recipeCatalog.js";
+import { type WorkoutRecord, workoutIncluded } from "../../services/member/workoutCatalog.js";
+import { resolveMemberPlan } from "../../services/member/planCatalog.js";
 import { recipeLibrary, workoutLibrary, exploreLibrary } from "../../services/member/publishedLibrary.js";
 
 const recipeSaveSchema = z.object({
@@ -48,38 +49,58 @@ async function savedRow(userId: string, kind: "recipe" | "workout", slug: string
   return SavedContent.findOne({ where: { userId, kind, slug } });
 }
 
-function publicRecipe(item: RecipeRecord, row: SavedContent | null) {
+function publicRecipe(item: RecipeRecord, plan: string, row: SavedContent | null) {
   return {
     slug: item.slug,
     title: item.title,
     why: item.why,
     ingredients: item.ingredients,
     nutrition: item.nutrition,
+    category: item.category,
+    prepMinutes: item.prepMinutes,
+    servings: item.servings,
+    difficulty: item.difficulty,
+    instructions: item.instructions,
+    macroSummary: item.macroSummary,
+    included: recipeIncluded(plan, item),
+    evidence: item.evidence,
     saved: Boolean(row?.saved),
     onPlan: Boolean(row?.onPlan),
   };
 }
 
-function publicWorkout(item: WorkoutRecord, row: SavedContent | null) {
+function publicWorkout(item: WorkoutRecord, plan: string, row: SavedContent | null) {
   return {
     slug: item.slug,
     title: item.title,
     focus: item.focus,
     difficulty: item.difficulty,
     why: item.why,
+    category: item.category,
+    durationMinutes: item.durationMinutes,
+    focusAreas: item.focusAreas,
+    included: workoutIncluded(plan, item),
+    exercises: item.exercises,
+    evidence: item.evidence,
     saved: Boolean(row?.saved),
     started: Boolean(row?.started),
   };
+}
+
+async function memberPlan(userId: string): Promise<string> {
+  const user = await User.findByPk(userId);
+  return resolveMemberPlan(user?.plan);
 }
 
 export async function listRecipes(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const userId = memberId(req, res);
     if (!userId) return;
+    const plan = await memberPlan(userId);
     const ordered = rankByFocus(await recipeLibrary(), await focusText(userId));
     const rows = await SavedContent.findAll({ where: { userId, kind: "recipe" } });
     sendSuccess(res, 200, "Recipes", {
-      items: ordered.map((item) => publicRecipe(item, rows.find((row) => row.slug === item.slug) ?? null)),
+      items: ordered.map((item) => publicRecipe(item, plan, rows.find((row) => row.slug === item.slug) ?? null)),
     });
   } catch (error) {
     next(error);
@@ -95,8 +116,9 @@ export async function getRecipe(req: AuthenticatedRequest, res: Response, next: 
       sendError(res, 404, "This recipe is not in the library");
       return;
     }
+    const plan = await memberPlan(userId);
     const row = await savedRow(userId, "recipe", item.slug);
-    sendSuccess(res, 200, "Recipe", publicRecipe(item, row));
+    sendSuccess(res, 200, "Recipe", publicRecipe(item, plan, row));
   } catch (error) {
     next(error);
   }
@@ -111,6 +133,11 @@ export async function saveRecipe(req: AuthenticatedRequest, res: Response, next:
       sendError(res, 404, "This recipe is not in the library");
       return;
     }
+    const plan = await memberPlan(userId);
+    if (!recipeIncluded(plan, item)) {
+      sendError(res, 403, "Go deeper with HerCompass Plus.");
+      return;
+    }
     const parsed = recipeSaveSchema.safeParse(req.body);
     if (!parsed.success) {
       sendError(res, 400, "Choose whether to save this recipe");
@@ -121,7 +148,7 @@ export async function saveRecipe(req: AuthenticatedRequest, res: Response, next:
       defaults: { userId, kind: "recipe", slug: item.slug },
     });
     await row.update({ saved: parsed.data.saved, onPlan: parsed.data.onPlan });
-    sendSuccess(res, 200, "Recipe updated", publicRecipe(item, row));
+    sendSuccess(res, 200, "Recipe updated", publicRecipe(item, plan, row));
   } catch (error) {
     next(error);
   }
@@ -131,10 +158,11 @@ export async function listWorkouts(req: AuthenticatedRequest, res: Response, nex
   try {
     const userId = memberId(req, res);
     if (!userId) return;
+    const plan = await memberPlan(userId);
     const ordered = rankByFocus(await workoutLibrary(), await focusText(userId));
     const rows = await SavedContent.findAll({ where: { userId, kind: "workout" } });
     sendSuccess(res, 200, "Workouts", {
-      items: ordered.map((item) => publicWorkout(item, rows.find((row) => row.slug === item.slug) ?? null)),
+      items: ordered.map((item) => publicWorkout(item, plan, rows.find((row) => row.slug === item.slug) ?? null)),
     });
   } catch (error) {
     next(error);
@@ -150,8 +178,9 @@ export async function getWorkout(req: AuthenticatedRequest, res: Response, next:
       sendError(res, 404, "This session is not in the library");
       return;
     }
+    const plan = await memberPlan(userId);
     const row = await savedRow(userId, "workout", item.slug);
-    sendSuccess(res, 200, "Workout", publicWorkout(item, row));
+    sendSuccess(res, 200, "Workout", publicWorkout(item, plan, row));
   } catch (error) {
     next(error);
   }
@@ -166,6 +195,11 @@ export async function saveWorkout(req: AuthenticatedRequest, res: Response, next
       sendError(res, 404, "This session is not in the library");
       return;
     }
+    const plan = await memberPlan(userId);
+    if (!workoutIncluded(plan, item)) {
+      sendError(res, 403, "Go deeper with HerCompass Plus.");
+      return;
+    }
     const parsed = workoutSaveSchema.safeParse(req.body);
     if (!parsed.success) {
       sendError(res, 400, "Choose whether to save this session");
@@ -176,7 +210,7 @@ export async function saveWorkout(req: AuthenticatedRequest, res: Response, next
       defaults: { userId, kind: "workout", slug: item.slug },
     });
     await row.update({ saved: parsed.data.saved, started: parsed.data.started });
-    sendSuccess(res, 200, "Session updated", publicWorkout(item, row));
+    sendSuccess(res, 200, "Session updated", publicWorkout(item, plan, row));
   } catch (error) {
     next(error);
   }
