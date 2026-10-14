@@ -296,7 +296,7 @@ function workoutPresentation(
   };
 }
 
-async function tableIsInUse(): Promise<boolean> {
+export async function tableIsInUse(): Promise<boolean> {
   const total = await ContentPiece.count();
   return total > 0;
 }
