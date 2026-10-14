@@ -4,6 +4,7 @@ import { aiRateLimiter } from "../../middleware/rateLimiter.js";
 import {
   generateSnapshot,
   generateInsight,
+  generateGeneric,
   submitAiFeedback,
   getAiHealth,
 } from "../../controllers/ai/aiGatewayController.js";
@@ -17,6 +18,8 @@ router.use(requireAuth);
 // the product and the most attractive target for abuse.
 router.post("/snapshot", aiRateLimiter, generateSnapshot);
 router.post("/insight", aiRateLimiter, generateInsight);
+// F14: spec-canonical alias — `feature` field in body routes to snapshot or insight.
+router.post("/generate", aiRateLimiter, generateGeneric);
 router.post("/feedback", aiRateLimiter, submitAiFeedback);
 
 router.get("/health", getAiHealth);

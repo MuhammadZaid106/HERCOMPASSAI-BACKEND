@@ -25,6 +25,8 @@ import {
   createPartnerInviteLink,
   getPartnerConnection,
   revokePartnerConnection,
+  getMemberGoals,
+  getMemberConsentHistory,
 } from "../../controllers/member/memberLibraryController.js";
 import {
   getRecipe,
@@ -54,6 +56,8 @@ router.get("/account/export", exportMemberAccount);
 router.put("/account/profile", updateMemberProfile);
 router.put("/account/preferences", updateAccountPreferences);
 router.put("/account/consent", updateAccountConsent);
+router.get("/account/consents", getMemberConsentHistory);
+router.get("/goals", getMemberGoals);
 router.post("/account/delete", deleteMemberAccount);
 router.get("/notification-preferences", getNotificationPreferences);
 router.put("/notification-preferences", updateNotificationPreferences);

@@ -183,12 +183,50 @@ function parseLesson(row: ContentPiece): AcademyLesson | null {
   };
 }
 
+export async function seedAcademyLessonsIfEmpty(): Promise<void> {
+  try {
+    const count = await ContentPiece.count({ where: { kind: "mens_academy" } });
+    if (count === 0) {
+      await ContentPiece.bulkCreate(
+        ACADEMY_LESSONS.map((item) => ({
+          kind: "mens_academy" as const,
+          slug: item.slug,
+          title: item.title,
+          status: "published" as const,
+          body: {
+            category: item.category,
+            version: item.version,
+            evidenceId: item.evidenceId,
+            summary: item.summary,
+            paragraphs: item.paragraphs,
+            trackNumber: item.trackNumber,
+            duration: item.duration,
+            takeaway: item.takeaway,
+            listenContext: item.listenContext,
+            audioUrl: item.audioUrl,
+          },
+        })),
+      );
+      academyLog.info("Seeded Men's Academy lessons into ContentPiece table");
+    }
+  } catch (error) {
+    academyLog.warn("Failed to auto-seed Men's Academy lessons", error);
+  }
+}
+
 export async function listAcademyLessons(): Promise<AcademyLesson[]> {
   try {
-    const rows = await ContentPiece.findAll({
+    let rows = await ContentPiece.findAll({
       where: { kind: "mens_academy", status: "published" },
       order: [["slug", "ASC"]],
     });
+    if (rows.length === 0) {
+      await seedAcademyLessonsIfEmpty();
+      rows = await ContentPiece.findAll({
+        where: { kind: "mens_academy", status: "published" },
+        order: [["slug", "ASC"]],
+      });
+    }
     if (rows.length === 0) return ACADEMY_LESSONS;
     const parsed = rows.flatMap((row) => {
       const lesson = parseLesson(row);

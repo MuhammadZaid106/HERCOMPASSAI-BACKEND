@@ -57,6 +57,11 @@ export async function seedAdminDesk(): Promise<void> {
             evidenceId: item.evidenceId,
             summary: item.summary,
             paragraphs: item.paragraphs,
+            trackNumber: item.trackNumber,
+            duration: item.duration,
+            takeaway: item.takeaway,
+            listenContext: item.listenContext,
+            audioUrl: item.audioUrl,
           },
         })),
       );
@@ -115,6 +120,11 @@ export async function seedAdminDesk(): Promise<void> {
         evidenceId: item.evidenceId,
         summary: item.summary,
         paragraphs: item.paragraphs,
+        trackNumber: item.trackNumber,
+        duration: item.duration,
+        takeaway: item.takeaway,
+        listenContext: item.listenContext,
+        audioUrl: item.audioUrl,
       },
     })),
   ]);

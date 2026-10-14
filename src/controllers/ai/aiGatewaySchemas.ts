@@ -19,6 +19,10 @@ export const aiGenerateSchema = z.object({
   locale: z.enum(["en-GB", "en-US"]).optional(),
 });
 
+export const aiGenericGenerateSchema = aiGenerateSchema.extend({
+  feature: z.enum(["personal_snapshot", "ai_insight"]).optional().default("personal_snapshot"),
+});
+
 export const aiFeedbackSchema = z.object({
   requestId: z.string().uuid("A valid AI requestId is required"),
   feature: z.enum(["personal_snapshot", "ai_insight", "partner_digest"]),
