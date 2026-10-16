@@ -1,5 +1,6 @@
 import { AI_GATEWAY_CONFIG, getFeaturePolicy } from "../../config/aiGateway.js";
 import { OnboardingProfile, User } from "../../models/index.js";
+import { cacheDel, cacheGet, cacheSet } from "../../config/redis.js";
 import { loadMemberTrendEngineOutput } from "../intelligence/memberTrendService.js";
 import type { TrendEngineOutput } from "../intelligence/trendTypes.js";
 import { getEvidenceById } from "../../ai/evidence/approvedEvidence.js";
@@ -437,12 +438,26 @@ export function deterministicMetricsFor(source: ContextSource): Record<string, u
 
 /** Loads the server-side profile the Gateway is permitted to read. */
 export async function loadContextSource(userId: string): Promise<ContextSource | null> {
+  const cached = await cacheGet<CachedContextSource>(contextCacheKey(userId));
+  if (cached) {
+    // Rebuild a model instance from the cached attributes so every downstream
+    // reader (this file, the prompt builder, the SCI pass) sees the same object
+    // it would have received from `findOne` — plain attribute access only.
+    const profile = OnboardingProfile.build(cached.profile, { isNewRecord: false });
+    return { profile, userName: cached.userName, trends: cached.trends };
+  }
+
   const profile = await OnboardingProfile.findOne({
     where: { userId },
     attributes: { exclude: ["createdAt", "updatedAt"] },
   });
 
-  if (!profile || !profile.isCompleted) return null;
+  if (!profile || !profile.isCompleted) {
+    // There is nothing worth caching, and a stale entry from a previous session
+    // must not outlive the profile being reset.
+    await cacheDel(contextCacheKey(userId));
+    return null;
+  }
 
   const [user, trends] = await Promise.all([
     User.findByPk(userId, { attributes: ["name"] }),
@@ -457,5 +472,35 @@ export async function loadContextSource(userId: string): Promise<ContextSource |
     }),
   ]);
 
-  return { profile, userName: user?.name ?? null, trends };
+  const userName = user?.name ?? null;
+  await cacheSet(
+    contextCacheKey(userId),
+    { profile: profile.get({ plain: true }), userName, trends },
+    CONTEXT_CACHE_TTL_SECONDS
+  );
+
+  return { profile, userName, trends };
+}
+
+/**
+ * The assembled context depends on the onboarding profile and the member's name.
+ * Both change rarely, and only through onboarding, so a short TTL in front of the
+ * reads removes two queries (plus the trend sweep) from every AI request without
+ * any meaningful staleness — onboarding also clears the key explicitly.
+ */
+const CONTEXT_CACHE_TTL_SECONDS = 60;
+
+interface CachedContextSource {
+  profile: Record<string, unknown>;
+  userName: string | null;
+  trends: TrendEngineOutput | null;
+}
+
+function contextCacheKey(userId: string): string {
+  return `ctx:${userId}`;
+}
+
+/** Clears the cached AI context after an onboarding write. */
+export async function invalidateContextCache(userId: string): Promise<void> {
+  await cacheDel(contextCacheKey(userId));
 }

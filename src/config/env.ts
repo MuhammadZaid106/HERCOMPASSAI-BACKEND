@@ -24,6 +24,12 @@ const envSchema = z.object({
   PORT: z.string().default("5000"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   DATABASE_URL: z.string().default(""),
+  /**
+   * Optional Redis connection string (e.g. `redis://localhost:6379` or `rediss://`
+   * for TLS). Blank disables all caching: every helper in `config/redis.ts`
+   * becomes a no-op and the app behaves exactly as it did without Redis.
+   */
+  REDIS_URL: z.string().default(""),
   JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
   JWT_REFRESH_SECRET: z.string().min(32, "JWT_REFRESH_SECRET must be at least 32 characters"),
   JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),

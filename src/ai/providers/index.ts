@@ -1,4 +1,5 @@
 import { env } from "../../config/env.js";
+import { cacheRemember } from "../../config/redis.js";
 import { logger } from "../../utils/logger.js";
 import { geminiProvider } from "./gemini.provider.js";
 import { llamaProvider } from "./llama.provider.js";
@@ -15,6 +16,8 @@ import type { ModelProvider, ModelProviderName, ProviderHealth } from "../types/
  */
 
 const registryLog = logger.module("AI-PROVIDERS");
+
+const PROVIDER_HEALTH_TTL_SECONDS = 60;
 
 const providers = new Map<ModelProviderName, ModelProvider>();
 
@@ -59,5 +62,10 @@ export function listProviderNames(): ModelProviderName[] {
  */
 export async function getProviderHealth(): Promise<ProviderHealth[]> {
   const entries = Array.from(providers.values());
-  return Promise.all(entries.map((provider) => provider.healthCheck()));
+  // Health probes reach out to each provider, so the admin surface reuses a short
+  // shared snapshot instead of re-probing on every dashboard poll. A 60s window
+  // keeps the reading fresh enough to act on while sparing the providers.
+  return cacheRemember("ai:provider-health", PROVIDER_HEALTH_TTL_SECONDS, () =>
+    Promise.all(entries.map((provider) => provider.healthCheck()))
+  );
 }

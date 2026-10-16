@@ -10,6 +10,8 @@ import {
 import { onboardingPayloadSchema } from "./onboardingSchemas.js";
 import { calculateDeterministicScores } from "../../services/onboarding/calculateScores.js";
 import { generatePersonalSnapshot } from "../../services/onboarding/personalSnapshotService.js";
+import { invalidateContextCache } from "../../services/ai-gateway/contextAssembler.js";
+import { invalidateMemberViews } from "../../services/member/memberCache.js";
 import { notifyMember } from "../../services/notifications/notificationService.js";
 import { trackEvent } from "../../services/analytics/trackEvent.js";
 import { stampFunnelFirstWrite } from "../../services/analytics/funnelStamps.js";
@@ -111,6 +113,12 @@ export async function submitOnboarding(
     } else {
       profile = await OnboardingProfile.create(profileData);
     }
+
+    // The AI context and the member views both cache this profile. Clear them the
+    // moment it changes so a retake is reflected on the next read instead of after
+    // the cache TTL, and so a Snapshot generated from here sees the new answers.
+    await invalidateContextCache(userId);
+    await invalidateMemberViews(userId);
 
     // Funnel stamps are first-write only; analytics events stay one-shot for conversion.
     void stampFunnelFirstWrite(userId, "onboarding_started");

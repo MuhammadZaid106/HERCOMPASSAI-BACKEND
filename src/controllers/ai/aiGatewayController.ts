@@ -1,7 +1,9 @@
 import type { Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware.js";
+import { createHash } from "node:crypto";
 import { AiAuditLog } from "../../models/index.js";
 import { sendSuccess, sendError } from "../../utils/apiResponse.js";
+import { cacheGet, cacheSet } from "../../config/redis.js";
 import { logger } from "../../utils/logger.js";
 import { getProviderHealth } from "../../ai/providers/index.js";
 import { listPromptBundles } from "../../ai/prompts/index.js";
@@ -20,6 +22,27 @@ import { aiGenerateSchema, aiFeedbackSchema } from "./aiGatewaySchemas.js";
 import type { ConsentScope, GatewayFeature } from "../../ai/types/index.js";
 
 const aiLog = logger.module("AI-CONTROLLER");
+
+/**
+ * How long an identical AI request is replayed from cache instead of being sent
+ * to a provider again. Short on purpose: it exists to absorb double-clicks and
+ * client retries, not to serve as a general memo of generated content.
+ */
+const AI_DEDUPE_TTL_SECONDS = 120;
+
+/**
+ * Builds the cache key for an in-flight duplicate. It hashes everything that
+ * determines the model's output for this member — the validated request, the
+ * consent scope, the loaded profile, the partner scope and any logging signals —
+ * so a change to any of them produces a fresh generation rather than a stale replay.
+ */
+function aiDedupeKey(parts: Record<string, unknown>): string {
+  const digest = createHash("sha256")
+    .update(JSON.stringify(parts))
+    .digest("hex")
+    .slice(0, 32);
+  return `ai:dedupe:${digest}`;
+}
 
 /**
  * AI Gateway HTTP surface.
@@ -99,6 +122,37 @@ async function handleGenerate(
     return;
   }
 
+  // Partner relevance is only advertised to the model when the member indicated
+  // it. Invitation never implies sharing (spec Step 52).
+  const partnerScope = partnerSupportIsRelevant(source.profile)
+    ? (source.profile.partnerSharingScopes ?? [])
+    : [];
+
+  // Every input that determines this generation, hashed into one key. Two identical
+  // requests inside the replay window return the same answer instead of paying for a
+  // second model call; any change to the profile, consent or scope yields a new key.
+  const dedupeKey = aiDedupeKey({
+    userId,
+    feature: options.feature,
+    promptVersion: parsed.data.promptVersion,
+    locale: parsed.data.locale,
+    consentId: consent.consentId,
+    partnerScope,
+    logSignals: options.logSignals ?? null,
+    profile: source.profile.get({ plain: true }),
+    userName: source.userName ?? null,
+  });
+
+  const replay = await cacheGet<{ output: unknown; meta: Record<string, unknown> }>(dedupeKey);
+  if (replay) {
+    aiLog.info(`♻️ AI generation replayed from cache for feature ${options.feature}`, { userId });
+    sendSuccess(res, 200, options.successMessage, {
+      output: replay.output,
+      meta: { ...replay.meta, deduped: true },
+    });
+    return;
+  }
+
   // Metered before the model runs, not after. A plan limit that is checked once the
   // work is already done is a report, not a limit. A refused generation spends
   // nothing and never reaches a provider.
@@ -124,11 +178,7 @@ async function handleGenerate(
     source,
     promptVersion: parsed.data.promptVersion,
     locale: parsed.data.locale,
-    // Partner relevance is only advertised to the model when the member indicated
-    // it. Invitation never implies sharing (spec Step 52).
-    partnerScope: partnerSupportIsRelevant(source.profile)
-      ? (source.profile.partnerSharingScopes ?? [])
-      : [],
+    partnerScope,
     logSignals: options.logSignals,
   });
 
@@ -137,7 +187,7 @@ async function handleGenerate(
     return;
   }
 
-  sendSuccess(res, 200, options.successMessage, {
+  const responsePayload = {
     output: result.output,
     // Provenance travels to the client so feedback can reference a requestId,
     // while internal SCI findings stay on the server.
@@ -162,7 +212,18 @@ async function handleGenerate(
         resetsAt: quota.resetsAt ?? null,
       },
     },
-  });
+  };
+
+  // Only successful generations are replayable. A fallback or blocked result is
+  // never cached, so a later retry still reaches a provider and can improve.
+  if (
+    result.provenance.resultStatus === "approved" ||
+    result.provenance.resultStatus === "approved_with_repairs"
+  ) {
+    await cacheSet(dedupeKey, responsePayload, AI_DEDUPE_TTL_SECONDS);
+  }
+
+  sendSuccess(res, 200, options.successMessage, responsePayload);
 }
 
 /**

@@ -1,5 +1,6 @@
 import { AI_GATEWAY_CONFIG } from "../../config/aiGateway.js";
 import { APPROVED_EVIDENCE, EVIDENCE_CATALOG_VERSION } from "../../ai/evidence/approvedEvidence.js";
+import { generateSemanticEmbedding, cosineSimilarity, getEvidenceVectorIndex, searchApprovedEvidenceVector } from "./vectorService.js";
 import type { EvidenceRecord, RetrievedEvidence } from "../../ai/types/index.js";
 
 /**
@@ -188,51 +189,7 @@ export function retrieveEvidence(
   query: EvidenceQuery,
   skipIds: ReadonlySet<string> = new Set(),
 ): EvidenceRetrievalResult {
-  const queryParts: string[] = [];
-  if (query.focusArea) queryParts.push(query.focusArea);
-  for (const goal of query.goals ?? []) queryParts.push(goal);
-  for (const area of query.reportedAreas ?? []) queryParts.push(area);
-
-  const queryTokens = new Set(
-    queryParts.flatMap((part) => tokenize(part))
-  );
-
-  // Topic hints only bias ranking; they never make a record retrievable on their
-  // own, so a weak lexical match still fails the relevance threshold.
-  const topicTokens = new Set(tokenize((query.topicHints ?? []).join(" ")));
-
-  const scored: RetrievedEvidence[] = [];
-
-  for (const record of APPROVED_EVIDENCE) {
-    if (skipIds.has(record.evidenceId)) continue;
-    if (!AI_GATEWAY_CONFIG.evidence.allowedStatuses.includes(record.status)) continue;
-    if (!isCitableRecord(record)) continue;
-
-    const { relevance, matched } = scoreRecord(record, queryTokens, topicTokens);
-    if (relevance < AI_GATEWAY_CONFIG.evidence.minRelevance) continue;
-
-    scored.push({
-      record,
-      relevanceScore: Number(relevance.toFixed(4)),
-      matchedKeywords: matched,
-    });
-  }
-
-  scored.sort((a, b) => {
-    if (b.relevanceScore !== a.relevanceScore) return b.relevanceScore - a.relevanceScore;
-    if (b.record.authorityLevel !== a.record.authorityLevel) {
-      return b.record.authorityLevel - a.record.authorityLevel;
-    }
-    return b.record.consensusLevel - a.record.consensusLevel;
-  });
-
-  const items = scored.slice(0, AI_GATEWAY_CONFIG.limits.maxEvidenceItems);
-
-  return {
-    items,
-    evidenceVersion: `${EVIDENCE_CATALOG_VERSION}+${AI_GATEWAY_CONFIG.versions.evidence}`,
-    insufficientEvidence: items.length === 0,
-  };
+  return retrieveEvidenceHybrid(query, { skipIds });
 }
 
 export function listApprovedEvidence(): EvidenceRecord[] {
@@ -283,4 +240,107 @@ export function clinicianReviewSummary(): ClinicianReviewSummary {
     fullyClinicianReviewed: pending.length === 0,
     pendingCitationIds: pending.map((record) => record.citationId),
   };
+}
+
+
+/**
+ * Hybrid semantic & lexical retrieval (Spec: Maria's Story, M1-M2 Spec Sec 9).
+ * Blends deterministic lexical keyword matching with dense clinical semantic vector embeddings.
+ */
+export function retrieveEvidenceHybrid(
+  query: EvidenceQuery,
+  options: {
+    minRelevance?: number;
+    semanticWeight?: number;
+    skipIds?: ReadonlySet<string>;
+  } = {}
+): EvidenceRetrievalResult {
+  const skipIds = options.skipIds ?? new Set();
+  const minRelevance = options.minRelevance ?? AI_GATEWAY_CONFIG.evidence.minRelevance;
+  const semanticWeight = options.semanticWeight ?? 0.35;
+  const lexicalWeight = 1.0 - semanticWeight;
+
+  const queryParts: string[] = [];
+  if (query.focusArea) queryParts.push(query.focusArea);
+  for (const goal of query.goals ?? []) queryParts.push(goal);
+  for (const area of query.reportedAreas ?? []) queryParts.push(area);
+  const fullQueryText = queryParts.join(" ");
+
+  const queryTokens = new Set(queryParts.flatMap((part) => tokenize(part)));
+  const topicTokens = new Set(tokenize((query.topicHints ?? []).join(" ")));
+  const queryVector = fullQueryText.trim() ? generateSemanticEmbedding(fullQueryText) : null;
+  const vectorIndex = getEvidenceVectorIndex();
+  const vectorMap = new Map(vectorIndex.map((item) => [item.evidenceId, item.vector]));
+
+  const scored: RetrievedEvidence[] = [];
+
+  for (const record of APPROVED_EVIDENCE) {
+    if (skipIds.has(record.evidenceId)) continue;
+    if (!AI_GATEWAY_CONFIG.evidence.allowedStatuses.includes(record.status)) continue;
+    if (!isCitableRecord(record)) continue;
+
+    const { relevance: lexicalRel, matched } = scoreRecord(record, queryTokens, topicTokens);
+
+    let semanticSim = 0;
+    if (queryVector) {
+      const recordVector = vectorMap.get(record.evidenceId);
+      if (recordVector) {
+        semanticSim = cosineSimilarity(queryVector, recordVector);
+      }
+    }
+
+    let hybridScore = lexicalRel;
+    let mode: "lexical" | "semantic" | "hybrid" = "lexical";
+
+    if (lexicalRel > 0 && semanticSim > 0) {
+      hybridScore = lexicalRel * lexicalWeight + (semanticSim * qualityFactor(record)) * semanticWeight;
+      mode = "hybrid";
+    } else if (lexicalRel === 0 && semanticSim >= 0.62) {
+      hybridScore = semanticSim * 0.65 * qualityFactor(record);
+      mode = "semantic";
+    }
+
+    if (hybridScore < minRelevance) continue;
+
+    scored.push({
+      record,
+      relevanceScore: lexicalRel > 0 ? Number(lexicalRel.toFixed(4)) : Number(hybridScore.toFixed(4)),
+      matchedKeywords: matched,
+      semanticScore: Number(semanticSim.toFixed(4)),
+      retrievalMode: mode,
+    });
+  }
+
+  scored.sort((a, b) => {
+    if (b.relevanceScore !== a.relevanceScore) return b.relevanceScore - a.relevanceScore;
+    if (b.record.authorityLevel !== a.record.authorityLevel) {
+      return b.record.authorityLevel - a.record.authorityLevel;
+    }
+    return b.record.consensusLevel - a.record.consensusLevel;
+  });
+
+  const items = scored.slice(0, AI_GATEWAY_CONFIG.limits.maxEvidenceItems);
+
+  return {
+    items,
+    evidenceVersion: `${EVIDENCE_CATALOG_VERSION}+${AI_GATEWAY_CONFIG.versions.evidence}`,
+    insufficientEvidence: items.length === 0,
+  };
+}
+
+/**
+ * Pure semantic vector search across the approved clinical evidence catalog.
+ */
+export function semanticSearchEvidence(
+  queryText: string,
+  options: { minSimilarity?: number; maxResults?: number } = {}
+): RetrievedEvidence[] {
+  const matches = searchApprovedEvidenceVector(queryText, options);
+  return matches.map((m) => ({
+    record: m.record,
+    relevanceScore: m.similarity,
+    matchedKeywords: m.matchedConcepts,
+    semanticScore: m.similarity,
+    retrievalMode: "semantic",
+  }));
 }

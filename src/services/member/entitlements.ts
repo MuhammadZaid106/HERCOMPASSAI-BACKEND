@@ -10,6 +10,7 @@ import { resolveMemberPlan, type MemberPlanId } from "./planCatalog.js";
 import { EntitlementUsage } from "../../models/EntitlementUsage.js";
 import { User } from "../../models/User.js";
 import { sequelize } from "../../config/db.js";
+import { cacheDel, cacheRemember } from "../../config/redis.js";
 import { logger } from "../../utils/logger.js";
 
 /**
@@ -248,9 +249,28 @@ export async function clampHistoryWindow(
 
 // ─── internals ────────────────────────────────────────────────────────────────
 
+/**
+ * The plan is read on almost every gated request — AI generation, feature
+ * checks, history clamping — and changes rarely. A one-minute cache removes a
+ * `findByPk` per call while staying far shorter than the window in which a plan
+ * change could matter. Plan changes also invalidate the key explicitly.
+ */
+const PLAN_CACHE_TTL_SECONDS = 60;
+
+function planCacheKey(userId: string): string {
+  return `user:${userId}:plan`;
+}
+
+/** Clears the cached plan after a tier change so gating reflects it at once. */
+export async function invalidatePlanCache(userId: string): Promise<void> {
+  await cacheDel(planCacheKey(userId));
+}
+
 async function readPlan(userId: string): Promise<string | null> {
-  const user = await User.findByPk(userId, { attributes: ["plan"] });
-  return user?.plan ?? null;
+  return cacheRemember(planCacheKey(userId), PLAN_CACHE_TTL_SECONDS, async () => {
+    const user = await User.findByPk(userId, { attributes: ["plan"] });
+    return user?.plan ?? null;
+  });
 }
 
 function countGenerations(userId: string, windowStart: Date): Promise<number> {

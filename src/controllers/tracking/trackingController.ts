@@ -9,6 +9,7 @@ import {
   SymptomEntry,
 } from "../../models/index.js";
 import { sendError, sendSuccess } from "../../utils/apiResponse.js";
+import { invalidateMemberViews } from "../../services/member/memberCache.js";
 import { notifyMember } from "../../services/notifications/notificationService.js";
 import {
   energyEntrySchema,
@@ -106,6 +107,7 @@ export async function saveSymptomEntry(req: AuthenticatedRequest, res: Response,
     if (!parsed.success) { sendError(res, 422, "Validation failed", parsed.error.flatten().fieldErrors); return; }
     const [entry, created] = await SymptomEntry.findOrCreate({ where: { userId, entryDate: parsed.data.entryDate }, defaults: { userId, ...parsed.data } });
     if (!entry.isNewRecord) await entry.update(parsed.data);
+    await invalidateMemberViews(userId);
     await notifyIfCheckInCompleted(userId, parsed.data.entryDate, created);
     sendSuccess(res, 200, "Symptoms saved", { entry });
   } catch (error) { next(error); }
@@ -119,6 +121,7 @@ export async function saveMoodEntry(req: AuthenticatedRequest, res: Response, ne
     if (!parsed.success) { sendError(res, 422, "Validation failed", parsed.error.flatten().fieldErrors); return; }
     const [entry, created] = await MoodEntry.findOrCreate({ where: { userId, entryDate: parsed.data.entryDate }, defaults: { userId, ...parsed.data } });
     if (!entry.isNewRecord) await entry.update(parsed.data);
+    await invalidateMemberViews(userId);
     await notifyIfCheckInCompleted(userId, parsed.data.entryDate, created);
     sendSuccess(res, 200, "Mood saved", { entry });
   } catch (error) { next(error); }
@@ -132,6 +135,7 @@ export async function saveSleepEntry(req: AuthenticatedRequest, res: Response, n
     if (!parsed.success) { sendError(res, 422, "Validation failed", parsed.error.flatten().fieldErrors); return; }
     const [entry, created] = await SleepEntry.findOrCreate({ where: { userId, entryDate: parsed.data.entryDate }, defaults: { userId, ...parsed.data } });
     if (!entry.isNewRecord) await entry.update(parsed.data);
+    await invalidateMemberViews(userId);
     await notifyIfCheckInCompleted(userId, parsed.data.entryDate, created);
     sendSuccess(res, 200, "Sleep saved", { entry });
   } catch (error) { next(error); }
@@ -145,6 +149,7 @@ export async function saveEnergyEntry(req: AuthenticatedRequest, res: Response, 
     if (!parsed.success) { sendError(res, 422, "Validation failed", parsed.error.flatten().fieldErrors); return; }
     const [entry, created] = await EnergyEntry.findOrCreate({ where: { userId, entryDate: parsed.data.entryDate }, defaults: { userId, ...parsed.data } });
     if (!entry.isNewRecord) await entry.update(parsed.data);
+    await invalidateMemberViews(userId);
     await notifyIfCheckInCompleted(userId, parsed.data.entryDate, created);
     sendSuccess(res, 200, "Energy saved", { entry });
   } catch (error) { next(error); }
@@ -158,6 +163,7 @@ export async function saveLifestyleEntry(req: AuthenticatedRequest, res: Respons
     if (!parsed.success) { sendError(res, 422, "Validation failed", parsed.error.flatten().fieldErrors); return; }
     const [entry] = await LifestyleEntry.findOrCreate({ where: { userId, entryDate: parsed.data.entryDate }, defaults: { userId, ...parsed.data } });
     if (!entry.isNewRecord) await entry.update(parsed.data);
+    await invalidateMemberViews(userId);
     sendSuccess(res, 200, "Lifestyle saved", { entry });
   } catch (error) { next(error); }
 }
@@ -251,6 +257,7 @@ export async function deleteTrackingEntry(
 
     const snapshot = entry.toJSON() as Record<string, unknown>;
     await entry.destroy();
+    await invalidateMemberViews(userId);
     sendSuccess(res, 200, `${TYPE_LABEL[parsed.data.type]} entry removed`, {
       type: parsed.data.type,
       id: parsed.data.id,
