@@ -45,7 +45,7 @@ ContentSource.init(
     organisation: { type: DataTypes.STRING(64), allowNull: false },
     url: { type: DataTypes.STRING(512), allowNull: true, defaultValue: null },
     publicationYear: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
-    approvedForAI: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    approvedForAI: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: "approved_for_ai" },
     createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
     updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
   },

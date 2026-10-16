@@ -123,11 +123,11 @@ CREATE POLICY goals_owner ON goals
     USING (user_id::text = current_setting('app.current_user_id', true))
     WITH CHECK (user_id::text = current_setting('app.current_user_id', true));
 
--- entitlement_usages
-ALTER TABLE entitlement_usages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE entitlement_usages FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS entitlement_usages_owner ON entitlement_usages;
-CREATE POLICY entitlement_usages_owner ON entitlement_usages
+-- entitlement_usage
+ALTER TABLE entitlement_usage ENABLE ROW LEVEL SECURITY;
+ALTER TABLE entitlement_usage FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS entitlement_usages_owner ON entitlement_usage;
+CREATE POLICY entitlement_usages_owner ON entitlement_usage
     USING (user_id::text = current_setting('app.current_user_id', true))
     WITH CHECK (user_id::text = current_setting('app.current_user_id', true));
 
@@ -171,11 +171,11 @@ CREATE POLICY ai_audit_logs_owner ON ai_audit_logs
     USING (user_id::text = current_setting('app.current_user_id', true))
     WITH CHECK (user_id::text = current_setting('app.current_user_id', true));
 
--- ai_feedbacks
-ALTER TABLE ai_feedbacks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE ai_feedbacks FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS ai_feedbacks_owner ON ai_feedbacks;
-CREATE POLICY ai_feedbacks_owner ON ai_feedbacks
+-- ai_feedback
+ALTER TABLE ai_feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ai_feedback FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ai_feedbacks_owner ON ai_feedback;
+CREATE POLICY ai_feedbacks_owner ON ai_feedback
     USING (user_id::text = current_setting('app.current_user_id', true))
     WITH CHECK (user_id::text = current_setting('app.current_user_id', true));
 
