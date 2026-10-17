@@ -1,3 +1,4 @@
+import { getNutritionRadar, getPredictiveCorrelations, getCoupleChallenges, completeCoupleChallenge } from "../../controllers/member/intelligenceController.js";
 import { Router, type IRouter } from "express";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import {
@@ -7,6 +8,8 @@ import {
   getMemberNotifications,
   getMemberProgress,
   getMemberSubscription,
+  startMemberTrial,
+  getMemberTrialStatus,
   markAllMemberNotificationsRead,
   markMemberNotificationRead,
 } from "../../controllers/member/memberController.js";
@@ -51,6 +54,8 @@ router.get("/notifications", getMemberNotifications);
 router.post("/notifications/read-all", markAllMemberNotificationsRead);
 router.patch("/notifications/:id/read", markMemberNotificationRead);
 router.get("/subscription", getMemberSubscription);
+router.post("/trial/start", startMemberTrial);
+router.get("/trial/status", getMemberTrialStatus);
 router.get("/account", getMemberAccount);
 router.get("/account/export", exportMemberAccount);
 router.put("/account/profile", updateMemberProfile);
@@ -81,5 +86,12 @@ router.get("/community", listCommunity);
 router.post("/community/notes", createCommunityNote);
 router.get("/explore", listExploreItems);
 router.get("/explore/:slug", getExploreItem);
+
+
+// ??? Maria's Story Specialized Intelligence Modules ?????????????????????????
+router.get("/nutrition-radar", getNutritionRadar);
+router.get("/predictions", getPredictiveCorrelations);
+router.get("/challenges", getCoupleChallenges);
+router.post("/challenges/:challengeId/complete", completeCoupleChallenge);
 
 export default router;

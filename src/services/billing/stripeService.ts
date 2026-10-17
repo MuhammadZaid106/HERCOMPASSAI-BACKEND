@@ -3,6 +3,7 @@ import { getStripe } from "../../config/stripe.js";
 import { env } from "../../config/env.js";
 import { User } from "../../models/User.js";
 import { logger } from "../../utils/logger.js";
+import { invalidatePlanCache } from "../member/entitlements.js";
 import { recordBillingEvent } from "./recordBillingEvent.js";
 
 const stripeLog = logger.module("StripeService");
@@ -205,6 +206,7 @@ export class StripeService {
             if (subscriptionId) user.stripeSubscriptionId = subscriptionId;
             user.subscriptionStatus = "active";
             await user.save();
+            await invalidatePlanCache(userId);
             resolvedUserId = user.id;
             stripeLog.info(`✅ User ${userId} upgraded to ${targetPlan} via Checkout Session`);
           }
@@ -258,6 +260,7 @@ export class StripeService {
             user.trialEndsAt = null;
           }
           await user.save();
+          await invalidatePlanCache(user.id);
           stripeLog.info(`✅ Subscription ${subscription.id} updated. User ${user.id} status=${status} plan=${user.plan}`);
           let billingStatus: "active" | "trialing" | "past_due" | "canceled" | "other" = "other";
           if (status === "active") billingStatus = "active";
@@ -285,6 +288,7 @@ export class StripeService {
           user.stripeSubscriptionId = null;
           user.trialEndsAt = null;
           await user.save();
+          await invalidatePlanCache(user.id);
           stripeLog.info(`✅ Subscription ${subscription.id} deleted. User ${user.id} downgraded to free.`);
           await recordBillingEvent({
             event,

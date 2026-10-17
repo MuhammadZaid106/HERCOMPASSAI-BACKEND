@@ -67,6 +67,8 @@ export interface RetrievedEvidence {
   record: EvidenceRecord;
   relevanceScore: number;
   matchedKeywords: string[];
+  semanticScore?: number;
+  retrievalMode?: "lexical" | "semantic" | "hybrid";
 }
 
 /**

@@ -1,3 +1,6 @@
+import { searchAcademicEvidence, ingestAcademicPaper } from "../../controllers/admin/academicEvidenceController.js";
+import { getMonitoringDashboard, triggerMonitoringScan } from "../../controllers/admin/monitoringController.js";
+import { runModelBenchmark, exportDataset, getLoraConfig, searchEvidenceVector } from "../../controllers/admin/mlAdminController.js";
 import { Router } from "express";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { requireStaff } from "../../middleware/roleMiddleware.js";
@@ -75,5 +78,20 @@ router.get("/ai-usage/:userId", getMemberAiUsage);
 
 router.get("/community-notes", listCommunityNotes);
 router.patch("/community-notes/:id", reviewCommunityNote);
+
+
+// ??? Academic Evidence Pipelines (PubMed & Semantic Scholar) ?????????????????
+router.get("/evidence/academic/search", searchAcademicEvidence);
+router.post("/evidence/academic/ingest", ingestAcademicPaper);
+
+// ??? Continuous 24h Monitoring & Hallucination Audits ?????????????????????????
+router.get("/monitoring/dashboard", getMonitoringDashboard);
+router.post("/monitoring/scan", triggerMonitoringScan);
+
+// ??? ML, Fine-Tuning & Model Evaluation Benchmark ????????????????????????????
+router.post("/ml/benchmark", runModelBenchmark);
+router.get("/ml/export-dataset", exportDataset);
+router.get("/ml/lora-config", getLoraConfig);
+router.get("/ml/vector-search", searchEvidenceVector);
 
 export default router;

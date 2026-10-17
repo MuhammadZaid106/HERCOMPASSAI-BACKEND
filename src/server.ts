@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { startContinuousMonitoringScheduler } from "./services/monitoring/monitoringScheduler.js";
 import app from "./app.js";
 import { env } from "./config/env.js";
 import { logger } from "./utils/logger.js";
@@ -17,6 +18,7 @@ if (!process.env.VERCEL) {
   const startServer = async (): Promise<void> => {
     try {
       await connectDB();
+      startContinuousMonitoringScheduler();
 
       app.listen(PORT, () => {
         logger.info(`🚀 HerCompassAI API Server running on port ${PORT}`);

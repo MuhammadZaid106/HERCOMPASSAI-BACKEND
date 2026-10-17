@@ -3,6 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import { env } from "./config/env.js";
+import { redisHealth } from "./config/redis.js";
 import { logger } from "./utils/logger.js";
 import authRoutes from "./routes/auth/authRoutes.js";
 import onboardingRoutes from "./routes/onboarding/onboardingRoutes.js";
@@ -98,8 +99,14 @@ app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 
 // ─── Health Check ─────────────────────────────────────────────────────────────
+// Redis is optional, so its status is reported rather than gating the response:
+// "disabled" or a degraded cache is a healthy app, just a slower one.
 app.get("/health", (_req, res) => {
-    res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+    res.status(200).json({
+        status: "ok",
+        redis: redisHealth(),
+        timestamp: new Date().toISOString(),
+    });
 });
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
