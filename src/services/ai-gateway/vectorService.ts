@@ -95,7 +95,7 @@ export function vectorMagnitude(v: number[]): number {
 /**
  * Normalizes vector to unit length (L2 norm).
  */
-export function normalizeVector(v: number[]): number {
+export function normalizeVector(v: number[]): number[] {
   const mag = vectorMagnitude(v);
   if (mag === 0) return v;
   return v.map((x) => x / mag);
@@ -182,8 +182,7 @@ export function getEvidenceVectorIndex(records: EvidenceRecord[] = APPROVED_EVID
       record.sourceName,
       record.topicAreas.join(" "),
       record.keywords.join(" "),
-      record.summaryQuote,
-      record.clinicalSummary,
+      record.summary,
     ].join(" ");
 
     const vector = generateSemanticEmbedding(textPayload);

@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import type { AuthenticatedRequest } from "../../middleware/authMiddleware.js";
 import { fineTuningService } from "../../services/ml/fineTuningService.js";
 import { evaluationRunner } from "../../services/ml/evaluationRunner.js";
 import { searchApprovedEvidenceVector } from "../../services/ai-gateway/vectorService.js";
@@ -11,9 +12,9 @@ const mlLog = logger.module("ML-ADMIN-CONTROLLER");
  * Runs automated candidate model benchmark evaluation
  * POST /api/admin/ml/benchmark
  */
-export async function runModelBenchmark(req: Request, res: Response): Promise<void> {
+export async function runModelBenchmark(req: AuthenticatedRequest, res: Response): Promise<void> {
   const { candidateModel } = req.body as { candidateModel?: string };
-  const staffUserId = req.user?.id || "admin-ml-evaluator";
+  const staffUserId = req.user?.userId || "admin-ml-evaluator";
 
   try {
     const scorecard = await evaluationRunner.runCandidateBenchmark({

@@ -1,4 +1,4 @@
-import { pubMedClient, type PubMedArticle, type PubMedSearchResult } from "./pubmedClient.js";
+import { pubMedClient } from "./pubmedClient.js";
 import { semanticScholarClient, type SemanticScholarMetrics } from "./semanticScholarClient.js";
 import { EvidenceSubmission } from "../../models/index.js";
 import { APPROVED_EVIDENCE } from "../../ai/evidence/approvedEvidence.js";
@@ -146,13 +146,13 @@ export class AcademicIngestionService {
         evidenceId,
         sourceName: `${article.journal} (${article.publicationYear})`,
         organization: org,
-        topic: article.title.slice(0, 180),
+        topic: article.title.slice(0, 160),
         publicationDate: `${article.publicationYear}-01-01`,
         urlOrIdentifier: urlOrId,
         evidenceCategory: category,
         status: "submitted",
-        submittedBy: staffUserId,
-        notes: `${customNote} | Authority Level: ${metrics.authorityLevel}/5, Consensus Level: ${metrics.consensusLevel}/5, Citations: ${metrics.citationCount}`,
+        staffUserId,
+        reviewNotes: `${customNote} | Authority Level: ${metrics.authorityLevel}/5, Consensus Level: ${metrics.consensusLevel}/5, Citations: ${metrics.citationCount}`.slice(0, 280),
       });
 
       academicLog.info(`Successfully ingested academic paper ${evidenceId} (${article.title})`);
