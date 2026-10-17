@@ -91,7 +91,7 @@ export class FineTuningService {
     // 2. Synthesize clinician-verified evidence training pairs from Approved Evidence
     for (const record of APPROVED_EVIDENCE) {
       examples.push({
-        claim: `${record.title}: ${record.summaryQuote}`,
+        claim: `${record.title}: ${record.summary}`,
         source: `${record.sourceName} (${record.publicationDate.slice(0, 4)})`,
         confidence: record.authorityLevel >= 4 ? "High" : "Moderate",
         messages: [
@@ -102,7 +102,7 @@ export class FineTuningService {
           },
           {
             role: "assistant",
-            content: `${record.clinicalSummary} According to ${record.sourceName} guidance, these lifestyle and nutritional strategies can be discussed alongside clinician care. This is not a diagnosis.`,
+            content: `${record.summary} According to ${record.sourceName} guidance, these lifestyle and nutritional strategies can be discussed alongside clinician care. This is not a diagnosis.`,
           },
         ],
       });

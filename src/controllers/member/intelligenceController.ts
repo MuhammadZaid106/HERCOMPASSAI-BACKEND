@@ -1,16 +1,17 @@
 import type { Request, Response } from "express";
+import type { AuthenticatedRequest } from "../../middleware/authMiddleware.js";
 import { nutritionRadarService } from "../../services/intelligence/nutritionRadarService.js";
 import { correlationEngine } from "../../services/intelligence/correlationEngine.js";
 import { coupleChallengesService } from "../../services/partner/coupleChallengesService.js";
 import { SymptomEntry } from "../../models/index.js";
-import { sendSuccess, sendError } from "../../utils/apiResponse.js";
+import { sendSuccess } from "../../utils/apiResponse.js";
 import { env } from "../../config/env.js";
 
 /**
  * GET /api/member/nutrition-radar
  */
-export async function getNutritionRadar(req: Request, res: Response): Promise<void> {
-  const userId = req.user?.id;
+export async function getNutritionRadar(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const userId = req.user?.userId;
   let symptoms: string[] = ["Night sweats", "Sleep disruption"];
 
   if (userId && env.DATABASE_URL && env.DATABASE_URL.trim() !== "") {
@@ -39,7 +40,7 @@ export async function getNutritionRadar(req: Request, res: Response): Promise<vo
 /**
  * GET /api/member/predictions
  */
-export async function getPredictiveCorrelations(req: Request, res: Response): Promise<void> {
+export async function getPredictiveCorrelations(_req: Request, res: Response): Promise<void> {
   const predictions = correlationEngine.calculatePredictions({
     symptoms: ["Night sweats", "Insomnia"],
     sleepDisturbance: true,
@@ -53,8 +54,8 @@ export async function getPredictiveCorrelations(req: Request, res: Response): Pr
 /**
  * GET /api/member/challenges
  */
-export async function getCoupleChallenges(req: Request, res: Response): Promise<void> {
-  const userId = req.user?.id || "guest-pair";
+export async function getCoupleChallenges(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const userId = req.user?.userId || "guest-pair";
   const challenges = await coupleChallengesService.getChallengeProgress(userId);
   sendSuccess(res, 200, "Couple challenges progress retrieved", { challenges });
 }
@@ -62,9 +63,9 @@ export async function getCoupleChallenges(req: Request, res: Response): Promise<
 /**
  * POST /api/member/challenges/:challengeId/complete
  */
-export async function completeCoupleChallenge(req: Request, res: Response): Promise<void> {
-  const userId = req.user?.id || "guest-pair";
-  const { challengeId } = req.params;
+export async function completeCoupleChallenge(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const userId = req.user?.userId || "guest-pair";
+  const challengeId = String(req.params.challengeId ?? "");
   const role = req.user?.role === "partner" ? "partner" : "member";
 
   const updated = await coupleChallengesService.recordActivity(userId, challengeId, role);

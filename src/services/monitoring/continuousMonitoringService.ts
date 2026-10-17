@@ -103,11 +103,10 @@ export class ContinuousMonitoringService {
                 userId: log.userId,
                 requestId: log.requestId,
                 feature: log.feature,
-                flagType: "ai-quality",
+                reason: "guardrail_blocked",
                 severity: "medium",
-                status: "open",
-                source: "scanner",
-                notes: "Continuous Monitoring Scan: Response references unverified or retired evidence citations.",
+                reviewStatus: "open",
+                detail: "Continuous Monitoring Scan: Response references unverified or retired evidence citations.",
               });
             }
           } catch (err) {

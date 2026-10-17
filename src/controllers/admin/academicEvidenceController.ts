@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import type { AuthenticatedRequest } from "../../middleware/authMiddleware.js";
 import { academicIngestionService } from "../../services/academic/academicIngestionService.js";
 import { sendSuccess, sendError } from "../../utils/apiResponse.js";
 import { logger } from "../../utils/logger.js";
@@ -26,7 +27,7 @@ export async function searchAcademicEvidence(req: Request, res: Response): Promi
  * Ingests a specific paper by PMID into the Evidence Submission queue
  * POST /api/admin/evidence/academic/ingest
  */
-export async function ingestAcademicPaper(req: Request, res: Response): Promise<void> {
+export async function ingestAcademicPaper(req: AuthenticatedRequest, res: Response): Promise<void> {
   const { pmid, note } = req.body as { pmid?: string; note?: string };
 
   if (!pmid || typeof pmid !== "string") {
@@ -34,7 +35,7 @@ export async function ingestAcademicPaper(req: Request, res: Response): Promise<
     return;
   }
 
-  const staffUserId = req.user?.id || "admin-academic-pipeline";
+  const staffUserId = req.user?.userId || "admin-academic-pipeline";
 
   try {
     const result = await academicIngestionService.ingestPaper(pmid, staffUserId, note);
