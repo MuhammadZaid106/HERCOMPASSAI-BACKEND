@@ -49,6 +49,14 @@ export class StripeService {
     return null;
   }
 
+  public static resolvePlanFromPriceId(priceId?: string | null): "plus" | "premium" | null {
+    if (!priceId) return null;
+    const p = priceId.trim();
+    if (p === env.STRIPE_PLUS_PRICE_ID_MONTHLY || p === env.STRIPE_PLUS_PRICE_ID_ANNUAL) return "plus";
+    if (p === env.STRIPE_PREMIUM_PRICE_ID_MONTHLY || p === env.STRIPE_PREMIUM_PRICE_ID_ANNUAL) return "premium";
+    return null;
+  }
+
   public static async getOrCreateCustomer(user: User): Promise<string> {
     const stripe = getStripe();
 
@@ -226,7 +234,10 @@ export class StripeService {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id;
         const status = subscription.status;
+        const subPriceId = subscription.items?.data?.[0]?.price?.id;
+        const trustedPlan = StripeService.resolvePlanFromPriceId(subPriceId);
         const metadataPlan = subscription.metadata?.plan as "plus" | "premium" | undefined;
+        const targetPlan = trustedPlan || metadataPlan;
 
         let user = await User.findOne({ where: { stripeSubscriptionId: subscription.id } });
         if (!user && customerId) {
@@ -238,8 +249,8 @@ export class StripeService {
           user.subscriptionStatus = status;
 
           if (status === "active" || status === "trialing") {
-            if (metadataPlan) {
-              user.plan = metadataPlan;
+            if (targetPlan) {
+              user.plan = targetPlan;
             }
             if (status === "trialing" && subscription.trial_end) {
               user.trialEndsAt = new Date(subscription.trial_end * 1000);

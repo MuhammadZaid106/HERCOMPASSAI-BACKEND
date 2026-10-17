@@ -7,6 +7,7 @@ import { User, RefreshToken, PasswordResetToken } from "../../models/index.js";
 import { sequelize } from "../../config/db.js";
 import { env } from "../../config/env.js";
 import { hashPassword } from "../../services/auth/hashPassword.js";
+import { claimGuestAccount } from "../../services/auth/claimGuestAccount.js";
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -141,9 +142,58 @@ export async function registerController(req: Request, res: Response): Promise<v
     return;
   }
 
-  const { name, email, password } = parsed.data;
+  const { name, email, password, guestClaimToken } = parsed.data;
 
   try {
+    const passwordHash = await hashPassword(password);
+
+    // A visitor who took the free no-signup Snapshot presents a handoff token.
+    // Upgrading their guest account in place — rather than creating a new one —
+    // is what lets their answers and Snapshot survive signup. Anything other
+    // than a successful claim falls through to an ordinary signup below.
+    if (guestClaimToken) {
+      const claim = await claimGuestAccount({
+        claimToken: guestClaimToken,
+        name,
+        email,
+        passwordHash,
+      });
+
+      if (claim.status === "email_taken") {
+        authLog.warn(`Registration claim attempted for existing email: ${email}`);
+        sendError(res, 409, "An account with this email already exists");
+        return;
+      }
+
+      if (claim.status === "claimed") {
+        const { mailed } = await sendSignupVerification(claim.user);
+        const { accessToken, refreshToken } = await issueSession(claim.user);
+
+        authLog.info("✅ Claimed guest account at signup", {
+          userId: claim.user.id,
+          email: claim.user.email,
+          verifyMailSent: mailed,
+        });
+
+        sendSuccess(res, 201, "Account created successfully", {
+          user: {
+            id: claim.user.id,
+            name: claim.user.name,
+            email: claim.user.email,
+            role: claim.user.role,
+            plan: claim.user.plan,
+            emailVerified: claim.user.emailVerified,
+            createdAt: claim.user.createdAt,
+          },
+          accessToken,
+          refreshToken,
+          verificationEmailSent: mailed,
+          guestClaimed: true,
+        });
+        return;
+      }
+    }
+
     // Check if user already exists
     const existing = await User.findOne({ where: { email } });
     if (existing) {
@@ -151,8 +201,6 @@ export async function registerController(req: Request, res: Response): Promise<v
       sendError(res, 409, "An account with this email already exists");
       return;
     }
-
-    const passwordHash = await hashPassword(password);
 
     const newUser = await User.create({
       name,

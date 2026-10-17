@@ -28,6 +28,8 @@ import {
   createPartnerInviteLink,
   getPartnerConnection,
   revokePartnerConnection,
+  getMemberGoals,
+  getMemberConsentHistory,
 } from "../../controllers/member/memberLibraryController.js";
 import {
   getRecipe,
@@ -36,6 +38,8 @@ import {
   listWorkouts,
   saveRecipe,
   saveWorkout,
+  listExploreItems,
+  getExploreItem,
 } from "../../controllers/member/contentLibraryController.js";
 import { getMeditation, listMeditations, saveMeditation } from "../../controllers/member/meditationController.js";
 import { createCommunityNote, listCommunity } from "../../controllers/member/communityController.js";
@@ -57,6 +61,8 @@ router.get("/account/export", exportMemberAccount);
 router.put("/account/profile", updateMemberProfile);
 router.put("/account/preferences", updateAccountPreferences);
 router.put("/account/consent", updateAccountConsent);
+router.get("/account/consents", getMemberConsentHistory);
+router.get("/goals", getMemberGoals);
 router.post("/account/delete", deleteMemberAccount);
 router.get("/notification-preferences", getNotificationPreferences);
 router.put("/notification-preferences", updateNotificationPreferences);
@@ -78,6 +84,8 @@ router.get("/meditation/:slug", getMeditation);
 router.put("/meditation/:slug", saveMeditation);
 router.get("/community", listCommunity);
 router.post("/community/notes", createCommunityNote);
+router.get("/explore", listExploreItems);
+router.get("/explore/:slug", getExploreItem);
 
 
 // ??? Maria's Story Specialized Intelligence Modules ?????????????????????????

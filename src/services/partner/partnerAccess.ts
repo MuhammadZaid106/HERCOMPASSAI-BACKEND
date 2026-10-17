@@ -1,6 +1,7 @@
 import { ENTITLEMENTS } from "../../config/entitlements.js";
 import { OnboardingProfile, PartnerInvite, User } from "../../models/index.js";
 import { resolveMemberPlan, type MemberPlanId } from "../member/planCatalog.js";
+import { getActiveRelationshipForPartner } from "./partnerRelationshipService.js";
 
 export const SHARE_SCOPES = ["general_support", "shared_activities", "communication_guidance"] as const;
 export type ShareScope = (typeof SHARE_SCOPES)[number];
@@ -132,6 +133,24 @@ export function topicAllowed(gate: PartnerGrant, topic: ShareScope): boolean {
 }
 
 export async function loadPartnerGate(partnerUserId: string, role: string | undefined): Promise<PartnerGate> {
+  const activeRel = await getActiveRelationshipForPartner(partnerUserId);
+  if (activeRel) {
+    const memberUserId = activeRel.relationship.memberUserId;
+    const [member, profile] = await Promise.all([
+      User.findByPk(memberUserId),
+      OnboardingProfile.findOne({ where: { userId: memberUserId } }),
+    ]);
+    return decidePartnerGate({
+      role,
+      inviteStatus: "accepted",
+      sharingOn: Boolean(profile?.partnerConsent),
+      scopes: activeRel.scopes.length > 0 ? activeRel.scopes : (profile?.partnerSharingScopes ?? []),
+      memberName: member?.name ?? "",
+      memberPlan: member?.plan ?? null,
+      memberUserId,
+    });
+  }
+
   const invite = await PartnerInvite.findOne({
     where: { partnerUserId, status: "accepted" },
     order: [["updatedAt", "DESC"]],

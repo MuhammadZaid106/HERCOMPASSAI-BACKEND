@@ -147,3 +147,17 @@ export const onboardingPayloadSchema = z.object({
 });
 
 export type OnboardingPayload = z.infer<typeof onboardingPayloadSchema>;
+
+/**
+ * The no-signup Snapshot request.
+ *
+ * Identical to the member assessment — a guest answers the same questions — plus
+ * an opaque device fingerprint that, hashed with the request IP, forms the
+ * server-side key for the one-free allowance. The fingerprint is not an
+ * identity and is never trusted on its own.
+ */
+export const guestSnapshotPayloadSchema = onboardingPayloadSchema.extend({
+  fingerprint: z.string().min(8).max(256),
+});
+
+export type GuestSnapshotPayload = z.infer<typeof guestSnapshotPayloadSchema>;

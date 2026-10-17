@@ -18,7 +18,7 @@ import {
   partnerSupportIsRelevant,
   clinicianReviewSummary,
 } from "../../services/ai-gateway/index.js";
-import { aiGenerateSchema, aiFeedbackSchema } from "./aiGatewaySchemas.js";
+import { aiGenerateSchema, aiGenericGenerateSchema, aiFeedbackSchema } from "./aiGatewaySchemas.js";
 import type { ConsentScope, GatewayFeature } from "../../ai/types/index.js";
 
 const aiLog = logger.module("AI-CONTROLLER");
@@ -260,6 +260,51 @@ export async function generateInsight(
       feature: "ai_insight",
       successMessage: "Your insight is ready",
       logSignals: userId ? await loadInsightLogSignals(userId) : undefined,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Generic AI generation endpoint — spec-defined route.
+ * POST /api/ai/generate
+ *
+ * Accepts `feature` in the request body (defaults to `personal_snapshot`).
+ * This is the spec-canonical alias that routes to the same gateway as
+ * /snapshot and /insight without breaking existing integrations.
+ */
+export async function generateGeneric(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    // Parse the generic schema which includes an optional `feature` field.
+    const parsed = aiGenericGenerateSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      sendError(res, 400, "Invalid AI request", parsed.error.flatten().fieldErrors);
+      return;
+    }
+
+    const feature = parsed.data.feature ?? "personal_snapshot";
+
+    // Delegate to the shared handler with the resolved feature.
+    // We inject the validated feature so handleGenerate's own aiGenerateSchema
+    // parse (which does NOT include `feature`) still sees a clean body.
+    req.body = { promptVersion: parsed.data.promptVersion, locale: parsed.data.locale };
+
+    const userId = req.user?.userId;
+    await handleGenerate(req, res, {
+      feature,
+      successMessage:
+        feature === "ai_insight"
+          ? "Your insight is ready"
+          : "Your Personal Menopause Snapshot is ready",
+      logSignals:
+        feature === "ai_insight" && userId
+          ? await loadInsightLogSignals(userId)
+          : undefined,
     });
   } catch (error) {
     next(error);

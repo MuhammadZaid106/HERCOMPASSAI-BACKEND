@@ -67,6 +67,14 @@ const envSchema = z.object({
   AI_GATEWAY_MAX_FALLBACK_ATTEMPTS: z.coerce.number().int().min(0).max(3).default(1),
   AI_GATEWAY_EVIDENCE_MIN_RELEVANCE: z.coerce.number().min(0).max(1).default(0.12),
 
+  // ─── One free, no-signup Snapshot ───────────────────────────────────────────
+  /** Master switch for the guest Snapshot flow. Off disables POST /api/public/snapshot. */
+  GUEST_SNAPSHOT_ENABLED: booleanFromEnv(true),
+  /** How long an unclaimed guest account and its answers are kept before purge. */
+  GUEST_SNAPSHOT_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(90),
+  /** Lifetime of the signed token that lets a guest claim their account at signup. */
+  GUEST_CLAIM_TOKEN_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+
   // ─── Model Providers (replaceable engines behind the Gateway) ───────────────
   LLAMA_PROVIDER_URL: z.string().default(""),
   LLAMA_PROVIDER_KEY: z.string().default(""),

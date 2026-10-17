@@ -42,6 +42,16 @@ import { EvaluationCase } from "./EvaluationCase.js";
 import { EvaluationRun } from "./EvaluationRun.js";
 import { EvaluationResult } from "./EvaluationResult.js";
 import { EvidenceSubmission } from "./EvidenceSubmission.js";
+import { EvidenceRecordModel } from "./EvidenceRecord.js";
+import { Consent } from "./Consent.js";
+import { GuestSnapshotClaim } from "./GuestSnapshotClaim.js";
+import { Goal } from "./Goal.js";
+import { PartnerRelationship } from "./PartnerRelationship.js";
+import { PartnerConsent } from "./PartnerConsent.js";
+import { PartnerPermission } from "./PartnerPermission.js";
+import { HumanReview } from "./HumanReview.js";
+import { AcademyCategory } from "./AcademyCategory.js";
+import { ContentSource } from "./ContentSource.js";
 
 // Setup Model Associations
 User.hasMany(RefreshToken, {
@@ -200,6 +210,67 @@ User.hasOne(UserFunnelStamp, {
 });
 UserFunnelStamp.belongsTo(User, { foreignKey: "userId", as: "user" });
 
+User.hasMany(Consent, {
+  foreignKey: "userId",
+  as: "consents",
+  onDelete: "CASCADE",
+});
+Consent.belongsTo(User, { foreignKey: "userId", as: "user" });
+
+// ─── Guest Snapshot allowance ─────────────────────────────────────────────────
+// The one-free gate for no-signup visitors. Cascades with the guest account so a
+// purged or deleted guest leaves no claim behind.
+User.hasOne(GuestSnapshotClaim, {
+  foreignKey: "guestUserId",
+  as: "guestSnapshotClaim",
+  onDelete: "CASCADE",
+});
+GuestSnapshotClaim.belongsTo(User, { foreignKey: "guestUserId", as: "guestUser" });
+
+User.hasMany(Goal, {
+  foreignKey: "userId",
+  as: "goals",
+  onDelete: "CASCADE",
+});
+Goal.belongsTo(User, { foreignKey: "userId", as: "user" });
+
+// ─── Partner Relationships, Consents & Permissions ───────────────────────────
+User.hasMany(PartnerRelationship, {
+  foreignKey: "memberUserId",
+  as: "memberRelationships",
+  onDelete: "CASCADE",
+});
+PartnerRelationship.belongsTo(User, { foreignKey: "memberUserId", as: "member" });
+
+User.hasMany(PartnerRelationship, {
+  foreignKey: "partnerUserId",
+  as: "partnerRelationships",
+  onDelete: "SET NULL",
+});
+PartnerRelationship.belongsTo(User, { foreignKey: "partnerUserId", as: "partnerUser" });
+
+PartnerRelationship.hasMany(PartnerConsent, {
+  foreignKey: "relationshipId",
+  as: "consents",
+  onDelete: "CASCADE",
+});
+PartnerConsent.belongsTo(PartnerRelationship, { foreignKey: "relationshipId", as: "relationship" });
+
+PartnerRelationship.hasMany(PartnerPermission, {
+  foreignKey: "relationshipId",
+  as: "permissions",
+  onDelete: "CASCADE",
+});
+PartnerPermission.belongsTo(PartnerRelationship, { foreignKey: "relationshipId", as: "relationship" });
+
+// ─── Human in the loop reviews ────────────────────────────────────────────────
+AiFlag.hasMany(HumanReview, {
+  foreignKey: "flagId",
+  as: "humanReviews",
+  onDelete: "CASCADE",
+});
+HumanReview.belongsTo(AiFlag, { foreignKey: "flagId", as: "flag" });
+
 export {
   sequelize,
   connectDB,
@@ -246,4 +317,14 @@ export {
   EvaluationRun,
   EvaluationResult,
   EvidenceSubmission,
+  EvidenceRecordModel,
+  Consent,
+  GuestSnapshotClaim,
+  Goal,
+  PartnerRelationship,
+  PartnerConsent,
+  PartnerPermission,
+  HumanReview,
+  AcademyCategory,
+  ContentSource,
 };

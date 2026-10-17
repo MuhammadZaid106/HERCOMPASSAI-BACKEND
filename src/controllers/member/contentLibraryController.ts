@@ -6,7 +6,7 @@ import { sendError, sendSuccess } from "../../utils/apiResponse.js";
 import { type RecipeRecord, recipeIncluded } from "../../services/member/recipeCatalog.js";
 import { type WorkoutRecord, workoutIncluded } from "../../services/member/workoutCatalog.js";
 import { resolveMemberPlan } from "../../services/member/planCatalog.js";
-import { recipeLibrary, workoutLibrary } from "../../services/member/publishedLibrary.js";
+import { recipeLibrary, workoutLibrary, exploreLibrary } from "../../services/member/publishedLibrary.js";
 
 const recipeSaveSchema = z.object({
   saved: z.boolean(),
@@ -211,6 +211,36 @@ export async function saveWorkout(req: AuthenticatedRequest, res: Response, next
     });
     await row.update({ saved: parsed.data.saved, started: parsed.data.started });
     sendSuccess(res, 200, "Session updated", publicWorkout(item, plan, row));
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** GET /api/member/explore — list all explore articles (DB-first, code fallback) */
+export async function listExploreItems(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = memberId(req, res);
+    if (!userId) return;
+    const items = await exploreLibrary();
+    sendSuccess(res, 200, "Explore library", { items });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** GET /api/member/explore/:slug — single explore article */
+export async function getExploreItem(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = memberId(req, res);
+    if (!userId) return;
+    const slug = String(req.params.slug ?? "");
+    const items = await exploreLibrary();
+    const item = items.find((entry) => entry.slug === slug);
+    if (!item) {
+      sendError(res, 404, "This article is not in the explore library");
+      return;
+    }
+    sendSuccess(res, 200, "Explore article", item);
   } catch (error) {
     next(error);
   }

@@ -44,6 +44,8 @@ describe("AI HTTP surface", () => {
     const calls: Array<[string, string]> = [
       ["POST", "/api/ai/snapshot"],
       ["POST", "/api/ai/insight"],
+      // F14: spec-canonical alias must also be protected
+      ["POST", "/api/ai/generate"],
       ["POST", "/api/ai/feedback"],
       ["GET", "/api/ai/health"],
     ];

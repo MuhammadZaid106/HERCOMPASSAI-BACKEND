@@ -4,7 +4,7 @@ import { runModelBenchmark, exportDataset, getLoraConfig, searchEvidenceVector }
 import { Router } from "express";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { requireStaff } from "../../middleware/roleMiddleware.js";
-import { listAiFlags, updateAiFlag, retestAiFlag, getMemberAiUsage } from "../../controllers/admin/adminController.js";
+import { listAiFlags, updateAiFlag, retestAiFlag, listAiFlagHumanReviews, getMemberAiUsage } from "../../controllers/admin/adminController.js";
 import {
   getAdminAudit,
   getAdminEvidence,
@@ -71,6 +71,7 @@ router.post("/grandfathered", postAdminGrandfathered);
 router.get("/ai-flags", listAiFlags);
 router.patch("/ai-flags/:id", updateAiFlag);
 router.post("/ai-flags/:id/retest", retestAiFlag);
+router.get("/ai-flags/:id/reviews", listAiFlagHumanReviews);
 
 /** Per-member AI allowance, for support. */
 router.get("/ai-usage/:userId", getMemberAiUsage);

@@ -7,6 +7,11 @@ import { User } from "../../models/User.js";
 import { logger } from "../../utils/logger.js";
 import { buildPartnerInviteUrl, partnerInviteEmail } from "../mail/partnerInviteEmail.js";
 import { appBaseUrl, sendMail } from "../mail/sendMail.js";
+import {
+  recordPartnerInvite,
+  recordPartnerAcceptance,
+  recordPartnerRevocation,
+} from "./partnerRelationshipService.js";
 
 const inviteLog = logger.module("PARTNER-INVITE");
 const INVITE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -29,8 +34,19 @@ export async function syncPartnerInvite(input: {
       { status: "revoked" },
       { where: { memberUserId: input.memberUserId, status: "sent" } },
     );
+    await recordPartnerRevocation({
+      memberUserId: input.memberUserId,
+      revoker: "member",
+      reason: "Sharing consent disabled",
+    });
     return { inviteSent: false, inviteUrl: null };
   }
+
+  await recordPartnerInvite({
+    memberUserId: input.memberUserId,
+    partnerEmail: input.partnerEmail,
+    scopes: input.scopes,
+  });
 
   if (!input.rotate) {
     const openInvite = await PartnerInvite.findOne({
@@ -162,6 +178,11 @@ export async function revokeConnectedPartner(memberUserId: string): Promise<{ ok
     { status: "revoked" },
     { where: { memberUserId, status: { [Op.in]: ["accepted", "sent"] } } },
   );
+  await recordPartnerRevocation({
+    memberUserId,
+    revoker: "member",
+    reason: "Member revoked partner access",
+  });
   if (invite?.partnerUserId) {
     await Notification.create({
       userId: invite.partnerUserId,
@@ -199,6 +220,11 @@ export async function leavePartnerSupport(partnerUserId: string): Promise<
     await profile.update({ partnerConsent: false, partnerSharingScopes: [] });
   }
   await invite.update({ status: "revoked" });
+  await recordPartnerRevocation({
+    partnerUserId,
+    revoker: "partner",
+    reason: "Partner left support",
+  });
   await Notification.create({
     userId: invite.memberUserId,
     category: "partner",
@@ -273,6 +299,11 @@ export async function respondToPartnerInvite(input: {
     }
 
     await invite.update({ status: "accepted", partnerUserId: input.partnerUserId });
+    await recordPartnerAcceptance({
+      memberUserId: invite.memberUserId,
+      partnerUserId: input.partnerUserId,
+      partnerEmail: invite.partnerEmail,
+    });
     await Notification.create({
       userId: invite.memberUserId,
       category: "partner",

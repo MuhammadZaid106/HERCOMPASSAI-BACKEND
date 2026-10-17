@@ -13,6 +13,7 @@ import aiRoutes from "./routes/ai/aiRoutes.js";
 import partnerInviteRoutes from "./routes/partner/partnerInviteRoutes.js";
 import adminRoutes from "./routes/admin/adminRoutes.js";
 import billingRoutes from "./routes/billing/billingRoutes.js";
+import publicRoutes from "./routes/public/publicRoutes.js";
 import { handleStripeWebhook } from "./controllers/billing/billingController.js";
 import { globalErrorHandler } from "./middleware/errorHandler.js";
 import { connectDB } from "./models/index.js";
@@ -117,6 +118,7 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/partner", partnerInviteRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/billing", billingRoutes);
+app.use("/api/public", publicRoutes);
 
 
 // ─── Global Error Handler (must be last) ─────────────────────────────────────

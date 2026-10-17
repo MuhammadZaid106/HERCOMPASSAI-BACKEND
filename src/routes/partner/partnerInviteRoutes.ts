@@ -15,12 +15,14 @@ import {
   getPartnerLesson,
   getPartnerSupport,
   markPartnerLessonRead,
+  getPartnerChallenges,
 } from "../../controllers/partner/partnerContentController.js";
 
 const router: IRouter = Router();
 
 router.get("/home", requireAuth, getPartnerHome);
 router.get("/activities", requireAuth, getPartnerActivities);
+router.get("/challenges", requireAuth, getPartnerChallenges);
 router.get("/academy", requireAuth, getPartnerAcademy);
 router.get("/academy/:slug", requireAuth, getPartnerLesson);
 router.post("/academy/:slug/read", requireAuth, markPartnerLessonRead);

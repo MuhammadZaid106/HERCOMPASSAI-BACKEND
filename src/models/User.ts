@@ -19,6 +19,19 @@ export class User extends Model<
   declare plan: CreationOptional<"free" | "plus" | "premium">;
   declare emailVerified: CreationOptional<boolean>;
   declare googleId: CreationOptional<string | null>;
+  /**
+   * True while this row is a no-signup guest account created by the free
+   * Snapshot flow. It exists so the AI pipeline can satisfy the
+   * `ai_audit_logs.user_id` foreign key without a real signup, and so `register`
+   * can recognise a claimable row. Flipped to false when the visitor signs up.
+   */
+  declare isGuest: CreationOptional<boolean>;
+  /**
+   * sha256(ip | device fingerprint | server secret) that created this guest.
+   * Unique while set; cleared on claim so a real account never looks like a
+   * guest. Null for every ordinary account.
+   */
+  declare guestSubjectHash: CreationOptional<string | null>;
   declare stripeCustomerId: CreationOptional<string | null>;
   declare stripeSubscriptionId: CreationOptional<string | null>;
   declare subscriptionStatus: CreationOptional<string | null>;
@@ -68,6 +81,16 @@ User.init(
     googleId: {
       type: DataTypes.STRING(255),
       allowNull: true,
+    },
+    isGuest: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    guestSubjectHash: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      unique: true,
     },
     stripeCustomerId: {
       type: DataTypes.STRING(255),

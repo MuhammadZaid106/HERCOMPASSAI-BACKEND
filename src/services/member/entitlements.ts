@@ -268,8 +268,25 @@ export async function invalidatePlanCache(userId: string): Promise<void> {
 
 async function readPlan(userId: string): Promise<string | null> {
   return cacheRemember(planCacheKey(userId), PLAN_CACHE_TTL_SECONDS, async () => {
-    const user = await User.findByPk(userId, { attributes: ["plan"] });
-    return user?.plan ?? null;
+    const user = await User.findByPk(userId, {
+      attributes: ["id", "plan", "subscriptionStatus", "trialEndsAt"],
+    });
+    if (!user) return null;
+
+    if (
+      user.subscriptionStatus === "trialing" &&
+      user.trialEndsAt &&
+      user.trialEndsAt <= new Date()
+    ) {
+      user.plan = "free";
+      user.subscriptionStatus = "expired";
+      await user.save().catch((err) => {
+        entitlementLog.warn(`Failed to persist trial expiration for user ${userId}`, err);
+      });
+      return "free";
+    }
+
+    return user.plan ?? null;
   });
 }
 

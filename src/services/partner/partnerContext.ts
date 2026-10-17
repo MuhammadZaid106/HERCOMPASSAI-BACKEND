@@ -1,7 +1,7 @@
 import { getEvidenceById } from "../../ai/evidence/approvedEvidence.js";
 import type { OnboardingProfile } from "../../models/OnboardingProfile.js";
 import type { SavedDigestSections } from "../../models/PartnerDigest.js";
-import { ACTIVITY_SUGGESTIONS, type ActivitySuggestion } from "./activityCatalog.js";
+import { listActivities, type ActivitySuggestion } from "./activityCatalog.js";
 import type { ShareScope } from "./partnerAccess.js";
 
 /** Shown when the safety pass blocks a personalised wording. The saved guide stays. */
@@ -168,9 +168,9 @@ export function conversationGuide(context: PartnerContext): { lines: string[]; e
   };
 }
 
-export function activityGuide(context: PartnerContext): ActivitySuggestion[] | null {
+export async function activityGuide(context: PartnerContext): Promise<ActivitySuggestion[] | null> {
   if (!context.authorizedScope.includes("shared_activities")) return null;
-  return ACTIVITY_SUGGESTIONS;
+  return listActivities();
 }
 
 /** Weekly guide parts. A topic that is off contributes no lines. */

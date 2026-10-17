@@ -1,5 +1,5 @@
 import { Op, type WhereOptions } from "sequelize";
-import { AiAuditLog, AiFeedback, AiFlag, AiFlagCase, AiRequestExcerpt } from "../../models/index.js";
+import { AiAuditLog, AiFeedback, AiFlag, AiFlagCase, AiRequestExcerpt, HumanReview } from "../../models/index.js";
 import { env } from "../../config/env.js";
 import { logger } from "../../utils/logger.js";
 import type { GatewayFeature } from "../../ai/types/index.js";
@@ -258,7 +258,10 @@ const RETEST_DIAGNOSTIC =
   /\b(you have|diagnosed with|your diagnosis|prescribe|prescription for|you suffer from)\b/i;
 
 /** Software retest on the retained output — does not train a model. */
-export async function retestFlag(flagId: string): Promise<{
+export async function retestFlag(
+  flagId: string,
+  reviewer: string = "system/staff"
+): Promise<{
   ok: boolean;
   passed: boolean | null;
   notes: string;
@@ -278,7 +281,15 @@ export async function retestFlag(flagId: string): Promise<{
     ? "Retest passed software safety checks on the retained output."
     : `Retest found: ${issues.join(", ")}`;
   await reviewCase.save();
-  feedbackLog.info(`AI flag ${flagId} retested (passed=${passed})`);
+
+  await HumanReview.create({
+    flagId,
+    reviewer,
+    decision: passed ? "retest_passed" : "retest_failed",
+    notes: reviewCase.lastRetestNotes,
+  });
+
+  feedbackLog.info(`AI flag ${flagId} retested (passed=${passed}) by ${reviewer}`);
   return { ok: true, passed, notes: reviewCase.lastRetestNotes };
 }
 
@@ -291,7 +302,12 @@ export async function retestFlag(flagId: string): Promise<{
 export async function resolveFlag(
   flagId: string,
   reviewer: string,
-  status: Extract<ReviewStatus, "resolved" | "dismissed" | "in_review">
+  status: Extract<ReviewStatus, "resolved" | "dismissed" | "in_review">,
+  reviewDetails?: {
+    notes?: string | null;
+    evidenceCited?: string | null;
+    diffSummary?: string | null;
+  }
 ): Promise<boolean> {
   const [updated] = await AiFlag.update(
     { reviewStatus: status, reviewedBy: reviewer, reviewedAt: new Date() },
@@ -299,6 +315,15 @@ export async function resolveFlag(
   );
 
   if (updated === 0) return false;
+
+  await HumanReview.create({
+    flagId,
+    reviewer,
+    decision: status,
+    notes: reviewDetails?.notes ?? null,
+    evidenceCited: reviewDetails?.evidenceCited ?? null,
+    diffSummary: reviewDetails?.diffSummary ?? null,
+  });
 
   const flag = await AiFlag.findByPk(flagId, { attributes: ["requestId"] });
   if (flag) {
@@ -310,6 +335,13 @@ export async function resolveFlag(
 
   feedbackLog.info(`AI flag ${flagId} moved to ${status} by ${reviewer}`);
   return true;
+}
+
+export async function listHumanReviews(flagId: string) {
+  return HumanReview.findAll({
+    where: { flagId },
+    order: [["createdAt", "DESC"]],
+  });
 }
 
 /** Counts for the queue header: how bad is it, and how much is left. */

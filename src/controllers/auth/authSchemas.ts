@@ -34,6 +34,13 @@ export const registerSchema = z
       .trim(),
     email: z.email("Please provide a valid email address").toLowerCase().trim(),
     password: acceptablePassword,
+    /**
+     * Optional handoff token from the no-signup Snapshot. When present and valid,
+     * the visitor's guest account is upgraded in place so their answers and free
+     * Snapshot carry over. A missing, forged or expired token is ignored and the
+     * request becomes an ordinary signup, so a stale token never blocks anyone.
+     */
+    guestClaimToken: z.string().min(1).optional(),
   })
   // Reject rather than silently drop: a caller still sending these needs to know
   // the server refused the value, not believe it took effect. `registerController`

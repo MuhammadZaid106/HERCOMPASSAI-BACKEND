@@ -14,6 +14,7 @@ import { filterByPreferences } from "../../services/notifications/notificationPo
 import { loadPreferences, notifyMember } from "../../services/notifications/notificationService.js";
 import { connectedPartnerFor, issuePartnerInviteLink, revokeConnectedPartner, syncPartnerInvite } from "../../services/partner/partnerInviteService.js";
 import { buildMemberDataExport } from "../../services/member/memberDataExport.js";
+import { recordConsent } from "../../services/member/consentService.js";
 
 const libraryLog = logger.module("MEMBER-LIBRARY");
 
@@ -317,6 +318,15 @@ export async function updatePartnerSettings(
       partnerConsent: parsed.data.partnerConsent,
       partnerSharingScopes: parsed.data.partnerConsent ? [...parsed.data.scopes] : [],
     });
+    void recordConsent({
+      userId,
+      consentType: "partner_sharing",
+      action: parsed.data.partnerConsent ? "granted" : "revoked",
+      scopes: parsed.data.partnerConsent ? [...parsed.data.scopes] : [],
+      ipAddress: req.ip || (req.headers["x-forwarded-for"] as string) || null,
+      userAgent: (req.headers["user-agent"] as string) || null,
+      metadata: { partnerEmail },
+    });
     const invite = await syncPartnerInvite({
       memberUserId: userId,
       partnerEmail: profile.partnerEmail,
@@ -568,6 +578,15 @@ export async function updateAccountConsent(
       consentVersion: parsed.data.consentVersion,
       consentTimestamp: new Date(),
     });
+    await recordConsent({
+      userId,
+      consentType: "wellness_personalization",
+      action: parsed.data.allowsPersonalization ? "granted" : "revoked",
+      consentVersion: parsed.data.consentVersion,
+      ipAddress: req.ip || (req.headers["x-forwarded-for"] as string) || null,
+      userAgent: (req.headers["user-agent"] as string) || null,
+      revocationReason: parsed.data.allowsPersonalization ? null : "Member switched to assessment only in settings",
+    });
     libraryLog.info(
       `[${new Date().toISOString()}] consent set to ${
         parsed.data.allowsPersonalization ? "personalization" : "assessment only"
@@ -610,3 +629,42 @@ export async function filterMemberNotifications<T extends { category: string }>(
 ): Promise<T[]> {
   return filterByPreferences(notifications, await loadPreferences(userId));
 }
+
+/**
+ * GET /api/member/goals — relational goals list
+ */
+export async function getMemberGoals(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = memberId(req, res);
+    if (!userId) return;
+    const { listUserGoals } = await import("../../services/member/goalService.js");
+    const goals = await listUserGoals(userId);
+    sendSuccess(res, 200, "Member goals", { goals });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /api/member/account/consents — versioned consent history
+ */
+export async function getMemberConsentHistory(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = memberId(req, res);
+    if (!userId) return;
+    const { listConsentHistory } = await import("../../services/member/consentService.js");
+    const consents = await listConsentHistory(userId);
+    sendSuccess(res, 200, "Consent history", { consents });
+  } catch (error) {
+    next(error);
+  }
+}
+

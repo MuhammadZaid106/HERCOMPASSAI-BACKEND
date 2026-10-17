@@ -19,6 +19,9 @@ export const reviewQueueQuerySchema = z.object({
 
 export const resolveFlagSchema = z.object({
   status: z.enum(["in_review", "resolved", "dismissed"]),
+  notes: z.string().trim().max(2000).optional(),
+  evidenceCited: z.string().trim().max(1000).optional(),
+  diffSummary: z.string().trim().max(2000).optional(),
 });
 
 export const adminUserQuerySchema = z.object({

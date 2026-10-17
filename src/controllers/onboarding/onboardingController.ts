@@ -15,6 +15,8 @@ import { invalidateMemberViews } from "../../services/member/memberCache.js";
 import { notifyMember } from "../../services/notifications/notificationService.js";
 import { trackEvent } from "../../services/analytics/trackEvent.js";
 import { stampFunnelFirstWrite } from "../../services/analytics/funnelStamps.js";
+import { recordConsent } from "../../services/member/consentService.js";
+import { syncGoalsFromOnboarding } from "../../services/member/goalService.js";
 import { sendSuccess, sendError } from "../../utils/apiResponse.js";
 import { logger } from "../../utils/logger.js";
 
@@ -39,8 +41,13 @@ export async function submitOnboarding(
       return;
     }
 
-    // 1. Zod runtime validation
-    const parsedData = onboardingPayloadSchema.parse(req.body);
+    // 1. Zod runtime validation — safeParse so a bad payload returns 400, not 500
+    const validation = onboardingPayloadSchema.safeParse(req.body);
+    if (!validation.success) {
+      sendError(res, 400, "Invalid onboarding data", validation.error.flatten().fieldErrors);
+      return;
+    }
+    const parsedData = validation.data;
 
     // 2. Deterministic calculations (Deterministic Software Calculates)
     const deterministicScores = calculateDeterministicScores({
@@ -126,6 +133,39 @@ export async function submitOnboarding(
       void trackEvent("onboarding_started", {
         userId,
         properties: { completedInSameSave: isCompleted },
+      });
+    }
+
+    // Sync goals to dedicated relational goals table
+    void syncGoalsFromOnboarding(userId, {
+      primaryGoal: parsedData.primaryGoal,
+      primaryHealthConcerns: parsedData.primaryHealthConcerns,
+      emotionalGoals: parsedData.emotionalGoals,
+      lifestyleFocus: parsedData.lifestyleFocus,
+    });
+
+    // Record audit-grade consent in dedicated consents table
+    const ipAddress = req.ip || (req.headers["x-forwarded-for"] as string) || null;
+    const userAgent = (req.headers["user-agent"] as string) || null;
+    void recordConsent({
+      userId,
+      consentType: "wellness_personalization",
+      action: "granted",
+      consentVersion: profile.version,
+      ipAddress,
+      userAgent,
+      metadata: { source: "onboarding_submission" },
+    });
+
+    if (parsedData.partnerConsent) {
+      void recordConsent({
+        userId,
+        consentType: "partner_sharing",
+        action: "granted",
+        scopes: parsedData.partnerSharingScopes,
+        ipAddress,
+        userAgent,
+        metadata: { partnerEmail: parsedData.partnerEmail, source: "onboarding_partner_sharing" },
       });
     }
     if (isCompleted) {

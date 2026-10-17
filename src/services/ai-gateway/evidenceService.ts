@@ -185,6 +185,85 @@ export interface EvidenceRetrievalResult {
   insufficientEvidence: boolean;
 }
 
+let cachedEvidenceRecords: EvidenceRecord[] = [...APPROVED_EVIDENCE];
+let lastCacheRefresh = 0;
+const CACHE_TTL_MS = 15 * 60 * 1000;
+
+export async function refreshEvidenceCache(): Promise<EvidenceRecord[]> {
+  try {
+    const { EvidenceRecordModel, EvidenceStatus } = await import("../../models/index.js");
+    const [dbRows, statusOverlays] = await Promise.all([
+      EvidenceRecordModel.findAll({
+        where: { status: "approved" },
+        order: [["authority_level", "DESC"]],
+      }),
+      EvidenceStatus.findAll(),
+    ]);
+
+    const overlayMap = new Map(statusOverlays.map((s) => [s.evidenceId, s]));
+
+    const baseList: EvidenceRecord[] =
+      dbRows && dbRows.length > 0
+        ? dbRows.map((row) => ({
+            evidenceId: row.evidenceId,
+            citationId: row.citationId,
+            sourceName: row.sourceName,
+            sourceCategory: row.sourceCategory,
+            title: row.title,
+            publisher: row.publisher,
+            publicationDate: row.publicationDate,
+            urlOrIdentifier: row.urlOrIdentifier,
+            evidenceType: row.evidenceType,
+            authorityLevel: row.authorityLevel,
+            consensusLevel: row.consensusLevel,
+            recencyScore: row.recencyScore,
+            status: row.status,
+            reviewedAt: row.reviewedAt,
+            reviewedBy: row.reviewedBy,
+            clinicianReview: row.clinicianReview,
+            version: row.version,
+            summary: row.summary,
+            keywords: row.keywords || [],
+            topicAreas: row.topicAreas || [],
+          }))
+        : [...APPROVED_EVIDENCE];
+
+    cachedEvidenceRecords = baseList.map((rec) => {
+      const overlay = overlayMap.get(rec.evidenceId);
+      if (!overlay) return rec;
+
+      const hasRealClinician = Boolean(
+        overlay.clinicianReviewerName &&
+        overlay.clinicianReviewerName.trim().length > 0 &&
+        overlay.clinicianReviewerName !== "pending-named-clinician"
+      );
+
+      return {
+        ...rec,
+        status: overlay.status === "retired" ? "retired" : rec.status,
+        clinicianReview: hasRealClinician ? ("signed" as const) : rec.clinicianReview,
+        reviewedBy: hasRealClinician ? overlay.clinicianReviewerName.trim() : rec.reviewedBy,
+        reviewedAt: overlay.reviewedAt ? overlay.reviewedAt.toISOString().slice(0, 10) : rec.reviewedAt,
+      };
+    });
+
+    lastCacheRefresh = Date.now();
+  } catch {
+    // Graceful fallback to existing in-memory/code catalog
+  }
+  return cachedEvidenceRecords;
+}
+
+export function getActiveEvidenceRecords(): EvidenceRecord[] {
+  if (Date.now() - lastCacheRefresh > CACHE_TTL_MS) {
+    void refreshEvidenceCache();
+  }
+  return cachedEvidenceRecords.length > 0 ? cachedEvidenceRecords : APPROVED_EVIDENCE;
+}
+
+// Initial eager cache population
+void refreshEvidenceCache();
+
 export function retrieveEvidence(
   query: EvidenceQuery,
   skipIds: ReadonlySet<string> = new Set(),
@@ -193,7 +272,7 @@ export function retrieveEvidence(
 }
 
 export function listApprovedEvidence(): EvidenceRecord[] {
-  return APPROVED_EVIDENCE.filter(
+  return getActiveEvidenceRecords().filter(
     (record) =>
       AI_GATEWAY_CONFIG.evidence.allowedStatuses.includes(record.status) &&
       isCitableRecord(record)
@@ -229,11 +308,19 @@ export interface ClinicianReviewSummary {
 
 export function clinicianReviewSummary(): ClinicianReviewSummary {
   const citable = listApprovedEvidence();
-  const pending = citable.filter((record) => record.clinicianReview !== "signed");
+  const pending = citable.filter((record) => {
+    const isSigned = record.clinicianReview === "signed";
+    const hasRealName = Boolean(
+      record.reviewedBy &&
+      record.reviewedBy.trim().length > 0 &&
+      record.reviewedBy !== "pending-named-clinician"
+    );
+    return !(isSigned && hasRealName);
+  });
 
   return {
     catalogVersion: EVIDENCE_CATALOG_VERSION,
-    total: APPROVED_EVIDENCE.length,
+    total: getActiveEvidenceRecords().length,
     citable: citable.length,
     clinicianSigned: citable.length - pending.length,
     pendingClinicianReview: pending.length,
@@ -273,8 +360,9 @@ export function retrieveEvidenceHybrid(
   const vectorMap = new Map(vectorIndex.map((item) => [item.evidenceId, item.vector]));
 
   const scored: RetrievedEvidence[] = [];
+  const activeRecords = getActiveEvidenceRecords();
 
-  for (const record of APPROVED_EVIDENCE) {
+  for (const record of activeRecords) {
     if (skipIds.has(record.evidenceId)) continue;
     if (!AI_GATEWAY_CONFIG.evidence.allowedStatuses.includes(record.status)) continue;
     if (!isCitableRecord(record)) continue;

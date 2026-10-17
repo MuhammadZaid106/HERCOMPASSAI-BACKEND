@@ -637,6 +637,16 @@ export async function startMemberTrial(
       return;
     }
 
+    if (user.subscriptionStatus === "active" && user.plan !== "free") {
+      sendError(res, 400, "You already have an active subscription.");
+      return;
+    }
+
+    if (user.trialEndsAt && user.trialEndsAt <= now) {
+      sendError(res, 400, "You have already completed your 14-day free trial. Please upgrade to continue enjoying Premium benefits.");
+      return;
+    }
+
     const TRIAL_DAYS = 14;
     const trialEndsAt = new Date(now.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
 
@@ -674,6 +684,14 @@ export async function getMemberTrialStatus(
     }
 
     const now = new Date();
+    // If trial has expired, update persisted status and clear cached plan
+    if (user.subscriptionStatus === "trialing" && user.trialEndsAt && user.trialEndsAt <= now) {
+      user.plan = "free";
+      user.subscriptionStatus = "expired";
+      await user.save();
+      await invalidatePlanCache(userId);
+    }
+
     const isTrialActive = Boolean(
       user.subscriptionStatus === "trialing" && user.trialEndsAt && user.trialEndsAt > now
     );
@@ -687,7 +705,7 @@ export async function getMemberTrialStatus(
       isTrialActive,
       trialEndsAt: user.trialEndsAt?.toISOString() ?? null,
       daysRemaining,
-      eligibleForTrial: user.plan === "free" && (!user.trialEndsAt || user.trialEndsAt <= now),
+      eligibleForTrial: user.plan === "free" && !user.trialEndsAt,
     });
   } catch (error) {
     next(error);
