@@ -27,12 +27,12 @@ export interface PortalResult {
 
 const DEFAULT_PRICING: Record<"plus" | "premium", { month: number; year: number }> = {
   plus: {
-    month: 1299,
-    year: 11988,
+    month: 799,
+    year: 7188,
   },
   premium: {
-    month: 1999,
-    year: 19188,
+    month: 1199,
+    year: 11988,
   },
 };
 
