@@ -28,6 +28,9 @@ export interface MailMessage {
 }
 
 export async function sendMail(message: MailMessage): Promise<boolean> {
+  mailLog.info(`sendMail called — to: ${message.to}, subject: "${message.subject}"`);
+  mailLog.info(`SMTP_USER="${env.SMTP_USER}", MAIL_FROM="${env.MAIL_FROM}", APP_PASSWORD length=${env.SMTP_APP_PASSWORD.length}`);
+
   if (!mailIsConfigured()) {
     mailLog.warn("Mail is not configured, so the message was not sent.");
     return false;
@@ -41,22 +44,27 @@ export async function sendMail(message: MailMessage): Promise<boolean> {
     },
   });
 
-  await transport.sendMail({
-    from: `"HerCompassAI" <${env.MAIL_FROM}>`,
-    to: message.to,
-    subject: message.subject,
-    text: message.text,
-    html: message.html,
-    attachments: [
-      {
-        filename: "hercompass-logo.png",
-        path: logoPath,
-        cid: "hercompass-logo",
-      },
-    ],
-  });
-  mailLog.info(`Sent "${message.subject}"`);
-  return true;
+  try {
+    const info = await transport.sendMail({
+      from: `"HerCompassAI" <${env.MAIL_FROM}>`,
+      to: message.to,
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+      attachments: [
+        {
+          filename: "hercompass-logo.png",
+          path: logoPath,
+          cid: "hercompass-logo",
+        },
+      ],
+    });
+    mailLog.info(`✅ Sent "${message.subject}" — messageId: ${info.messageId}, response: ${info.response}`);
+    return true;
+  } catch (err) {
+    mailLog.error(`❌ sendMail FAILED for "${message.subject}" to ${message.to}`, err);
+    throw err;
+  }
 }
 
 function escapeHtml(value: string): string {
